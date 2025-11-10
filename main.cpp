@@ -1,12 +1,29 @@
+#include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <portaudio.h>
 #include <cstring>
-#include <array>
 
-#define SAMPLE_RATE 44100
-#define FRAMES_PER_BUFFER 256
-#define CHANNEL_COUNT 2
+#define SAMPLE_RATE         (44100)
+#define FRAMES_PER_BUFFER   (256)
+#define CHANNEL_COUNT       (2)
+#ifndef M_PI
+#define M_PI                (3.14159265)
+#endif
+#define TONE_HZ             (200)
+#define TABLE_SIZE          (SAMPLE_RATE / TONE_HZ)
+#define ITD_MS              (0.5) /* Interaural Time Difference (ITD): The time it takes sound to traverse the distance between your ears */
+#define BALANCE_DELTA       (0.001)
+#define OUTPUT_DEVICE       (7) /* Run the program, and choose the output device that works for you. */
+
+typedef struct
+{
+    float sine[TABLE_SIZE];
+    int left_phase;
+    int right_phase;
+    float targetBalance; // 0.0 = left, 1.0 = right
+    float currentBalance;
+} paTestData;
 
 static void checkErr(PaError err) {
     if (err != paNoError) {
@@ -27,30 +44,38 @@ static int paTestCallback(
         PaStreamCallbackFlags statusFlags,
         void* userData
 ) {
-    float* inputBuf = (float*)inputBuffer;
-    (void)outputBuffer;
+    paTestData *data = (paTestData*)userData;
+    float* out = (float*)outputBuffer;
+    (void)inputBuffer;
     
-    int dispSize = 100;
-    printf("\r");
+    for(unsigned long i = 0; i < framesPerBuffer; i++) {
+        // Smoothly pan between left and right.
+        // if( data->currentBalance < data->targetBalance )
+        // {
+        //     data->currentBalance += BALANCE_DELTA;
+        // }
+        // else if( data->currentBalance > data->targetBalance )
+        // {
+        //     data->currentBalance -= BALANCE_DELTA;
+        // }
 
-    std::array<float, CHANNEL_COUNT> volumePerChannel;
+        data->currentBalance = data->targetBalance;
+        // Apply left/right balance.
+        // Change phase.
+        int leftPhaseOffset = (int)(data->left_phase + (SAMPLE_RATE / 1000.0f * ITD_MS)) % TABLE_SIZE;
+        int rightPhaseOffset = (int)(data->right_phase + (SAMPLE_RATE / 1000.0f * ITD_MS)) % TABLE_SIZE;
+        // leftPhaseOffset = data->left_phase;
+        // rightPhaseOffset = data->left_phase;
+        // Change volume.
+        *out++ = data->sine[leftPhaseOffset] * (0.75f - data->currentBalance * 0.5f);  /* left */
+        *out++ = data->sine[rightPhaseOffset] * (0.25f + data->currentBalance * 0.5f);  /* right */
 
-    for (unsigned long i = 0; i < framesPerBuffer * CHANNEL_COUNT; i += CHANNEL_COUNT) {
-        for (unsigned long j = i; j < CHANNEL_COUNT; j++) {
-            volumePerChannel[j / framesPerBuffer] = max(volumePerChannel[j / framesPerBuffer], std::abs(inputBuf[i]));
-        }
+        data->left_phase += 1;
+        if( data->left_phase >= TABLE_SIZE ) data->left_phase -= TABLE_SIZE;
+        data->right_phase += 1;
+        if( data->right_phase >= TABLE_SIZE ) data->right_phase -= TABLE_SIZE;
     }
 
-    for (int i = 0; i < dispSize; i++) {
-        float barProportion = i / (float)dispSize;
-        if (volumePerChannel[0] >= barProportion) {
-            printf("█");
-        } else {
-            printf(" ");
-        }
-    }
-
-    fflush(stdout);
     return paContinue;
 }
 
@@ -80,18 +105,32 @@ int main() {
         printf("\tsdefaultSampleRate: %f\n", deviceInfo->defaultSampleRate);
     }
 
-    int inputDevice = 4;
-    int outputDevice = 5;
+    /* initialise wavetable */
+    paTestData data;
+    for(int i = 0; i<TABLE_SIZE; i++)
+    {
+        // data.sine[i] = (float) sin( ((double)i/(double)TABLE_SIZE) * M_PI * 2. );
+        // data.sine[i] = ((double)i/(double)TABLE_SIZE) * 2 - 1;
 
-    PaStreamParameters inputParameters;
+        float amplitude = 0;
+        float phase = i / (float)TABLE_SIZE;
+
+        // triangle wave
+        if (phase > 0.5) {
+            amplitude = (phase * -4) + 3;
+        } else {
+            amplitude = phase * 4 - 1;
+        }
+
+        data.sine[i] = amplitude; 
+    }
+    data.left_phase = data.right_phase = 0;
+    data.currentBalance = 0.0;
+    data.targetBalance = 0.0;
+
+    int outputDevice = OUTPUT_DEVICE;
+
     PaStreamParameters outputParameters;
-
-    memset(&inputParameters, 0, sizeof(inputParameters));
-    inputParameters.channelCount = CHANNEL_COUNT;
-    inputParameters.device = inputDevice;
-    inputParameters.hostApiSpecificStreamInfo = NULL;
-    inputParameters.sampleFormat = paFloat32;
-    inputParameters.suggestedLatency = Pa_GetDeviceInfo(inputDevice)->defaultLowInputLatency;
 
     memset(&outputParameters, 0, sizeof(outputParameters));
     outputParameters.channelCount = CHANNEL_COUNT;
@@ -103,20 +142,27 @@ int main() {
     PaStream* stream;
     err = Pa_OpenStream(
         &stream,
-        &inputParameters,
+        NULL,
         &outputParameters,
         SAMPLE_RATE,
         FRAMES_PER_BUFFER,
         paNoFlag,
         paTestCallback,
-        NULL
+        &data
     );
     checkErr(err);
 
     err = Pa_StartStream(stream);
     checkErr(err);
 
-    Pa_Sleep(10 * 1000);
+    int stepsPerSec = 100;
+    int testPeriodInSec = 10;
+    int totalSteps = stepsPerSec * testPeriodInSec;
+    for (int i = 0; i < totalSteps; i++) {
+        float targetBalance = i / (float)totalSteps;
+        data.targetBalance = targetBalance;
+        Pa_Sleep((testPeriodInSec * 1000) / totalSteps);
+    }
 
     err = Pa_StopStream(stream);
     checkErr(err);
