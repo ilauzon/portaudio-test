@@ -18,7 +18,7 @@ uninstall-deps:
 .PHONY: uninstall-deps
 
 run:
-	./$(EXEC)
+	./$(EXEC) $(OUTPUT_DEVICE)
 
 clean:
 	rm -f $(EXEC)
