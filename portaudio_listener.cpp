@@ -15,6 +15,7 @@
 #define TABLE_SIZE          (SAMPLE_RATE / TONE_HZ)
 #define ITD_MS              (0.5) /* Interaural Time Difference (ITD): The time it takes sound to traverse the distance between your ears */
 #define BALANCE_DELTA       (0.001)
+#define OUTPUT_DEVICE       (5)
 
 typedef struct
 {
@@ -79,17 +80,12 @@ static int paTestCallback(
     return paContinue;
 }
 
-int main(int argc, char* argv[]) {
+int startPlayback() {
     PaError err;
     err = Pa_Initialize();
     checkErr(err);
 
-    int outputDevice;
-    if (argc <= 1) {
-        outputDevice = 0; /* Try the first output device if none are specified */
-    } else {
-        outputDevice = std::stoi(argv[1]);
-    }
+    int outputDevice = OUTPUT_DEVICE;
 
     int numDevices = Pa_GetDeviceCount();
     printf("Number of devices: %d\n", numDevices);

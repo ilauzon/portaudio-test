@@ -1,9 +1,14 @@
 CC = g++
 EXEC = audiotest
 CFLAGS = -I./lib/portaudio/include ./lib/portaudio/lib/.libs/libportaudio.a -lrt -lasound -ljack -pthread
+CPP_FILES = *.cpp
 
-$(EXEC): main.cpp
-	$(CC) -o $@ $^ $(CFLAGS)
+WX_CONFIG := wx-config
+WX_CXXFLAGS := $(shell $(WX_CONFIG) --cxxflags)
+WX_LIBS := $(shell $(WX_CONFIG) --libs)
+
+$(EXEC): $(CPP_FILES)
+	$(CC) $(WX_CXXFLAGS) -o $@ $^ $(CFLAGS) $(WX_LIBS)
 
 install-deps:
 	mkdir -p lib
