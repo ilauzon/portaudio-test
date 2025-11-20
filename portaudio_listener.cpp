@@ -1,7 +1,8 @@
 #include "portaudio_listener.h"
-
+#include "six_channel.h"
 #include <array>
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -20,6 +21,13 @@ void SetOutputDeviceIndex(int index)
 
 // ------------ Constants ------------
 #define FRAMES_PER_BUFFER   (256)
+#include <math.h>
+#include <ostream>
+#include <portaudio.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#define FRAMES_PER_BUFFER (256)
 #ifndef M_PI
 #define M_PI (3.14159265)
 #endif
@@ -66,10 +74,19 @@ static Point getCircularCoordinates(float circularPosition, float radius)
     return p;
 }
 
-// ------------ PortAudio callback ------------
+std::string getSixChannelName(int channel) {
+    switch(channel) {
+        case SixChannelSetup::BackLeft:     return "BackLeft";
+        case SixChannelSetup::BackRight:    return "BackRight";
+        case SixChannelSetup::FrontLeft:    return "FrontLeft";
+        case SixChannelSetup::FrontRight:   return "FrontRight";
+        case SixChannelSetup::Centre:       return "Centre";
+        case SixChannelSetup::Subwoofer:    return "Subwoofer";
+        default: exit(EXIT_FAILURE);
+    }
+}
 
-static int paTestCallback(const void *inputBuffer,
-                          void *outputBuffer,
+static int paTestCallback(const void *inputBuffer, void *outputBuffer,
                           unsigned long framesPerBuffer,
                           const PaStreamCallbackTimeInfo *timeInfo,
                           PaStreamCallbackFlags statusFlags,
@@ -91,28 +108,28 @@ static int paTestCallback(const void *inputBuffer,
     {
         for (int c = 0; c < CHANNEL_COUNT; ++c)
         {
-            float speakerDistance = distances[c];
-
+                float speakerDistance = distances[c];
+    
             // Simple distance → gain mapping:
             // closer => louder, farther => quieter
             // gain in (0, 1], safe for visualization and audio
             float gain = REFERENCE_DISTANCE / (REFERENCE_DISTANCE + speakerDistance);
 
             // Store for GUI visualization
-            data->channelVolumes[c] = gain;
+                data->channelVolumes[c] = gain;
 
             // Phase update
             int phaseOffset = data->channelPhases[c];
             data->channelPhases[c] += 1;
-            if (data->channelPhases[c] >= TABLE_SIZE)
+            if (data->channelPhases[c] >= TABLE_SIZE) {
                 data->channelPhases[c] -= TABLE_SIZE;
+            }
 
             float sample = data->sine[phaseOffset] * gain;
 
             *out++ = sample;
         }
     }
-
     return paContinue;
 }
 

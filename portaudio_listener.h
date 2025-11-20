@@ -7,7 +7,9 @@
 #define TABLE_SIZE          (SAMPLE_RATE / TONE_HZ)
 #define TONE_HZ             (200)
 #define SAMPLE_RATE         (44100)
-#define CHANNEL_COUNT       (2)
+#define CHANNEL_COUNT       (6)
+// (0) FL, (1) FR, (2) LR, (3) BR, (4) CEN, (5) SUB
+
 
 typedef struct {
     float x;
@@ -23,6 +25,8 @@ typedef struct
     Point subjectBounds[2]; // bounds for the listener, in metres.
     Point speakerPositions[CHANNEL_COUNT]; // the position of each speaker relative to subjectBounds, in offset metres.
 } paTestData;
+
+Point getCircularCoordinates(float circularPosition, float radius);
 
 PaStream* startPlayback(paTestData* data);
 
