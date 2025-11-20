@@ -2,56 +2,97 @@
 #include <cstdlib>
 #include "portaudio_listener.h"
 
+// Global audio data
+paTestData gData;
 
-int start() {
-    paTestData data;
-
-    /* initialise wavetable */
-    for(int i = 0; i<TABLE_SIZE; i++)
+// ============================
+// WAVETABLE INITIALIZATION
+// ============================
+static void initWavetable(paTestData& data)
+{
+    for (int i = 0; i < TABLE_SIZE; i++)
     {
-        // data.sine[i] = (float) sin( ((double)i/(double)TABLE_SIZE) * M_PI * 2. );
-        // data.sine[i] = ((double)i/(double)TABLE_SIZE) * 2 - 1;
-
-        float amplitude = 0;
         float phase = i / (float)TABLE_SIZE;
+        float amplitude;
 
-        // triangle wave
-        if (phase > 0.5) {
-            amplitude = (phase * -4) + 3;
-        } else {
-            amplitude = phase * 4 - 1;
-        }
+        // Triangle wave
+        if (phase > 0.5f)
+            amplitude = (phase * -4.f) + 3.f;
+        else
+            amplitude = phase * 4.f - 1.f;
 
-        data.sine[i] = amplitude; 
+        data.sine[i] = amplitude;
     }
+}
 
-    if (CHANNEL_COUNT == 2) {
-        data.speakerPositions[0] = {1, 0};
-        data.speakerPositions[1] = {-1, 0};
-    } else if (CHANNEL_COUNT == 6) {
-        // 0 deg
-        data.speakerPositions[0] = { 1.000, 0.000 };
-        // 72 deg
-        data.speakerPositions[1] = { 0.309, 0.951 };
-        // 144 deg
-        data.speakerPositions[2] = { -0.809, 0.588 };
-        // 216 deg
+// ============================
+// ROOM + SPEAKER POSITIONS
+// ============================
+static void initRoomAndSpeakers(paTestData& data)
+{
+    // Define room bounds
+    data.subjectBounds[0] = { -1.0f, -1.0f }; // bottom-left
+    data.subjectBounds[1] = {  1.0f,  1.0f }; // top-right
+
+    if (CHANNEL_COUNT == 2)
+    {
+        data.speakerPositions[0] = { 1, 0 };
+        data.speakerPositions[1] = { -1, 0 };
+    }
+    else if (CHANNEL_COUNT == 6)
+    {
+        data.speakerPositions[0] = { 1.000,  0.000 };
+        data.speakerPositions[1] = { 0.309,  0.951 };
+        data.speakerPositions[2] = { -0.809,  0.588 };
         data.speakerPositions[3] = { -0.809, -0.588 };
-        // 288 deg
         data.speakerPositions[4] = { 0.309, -0.951 };
-        data.speakerPositions[5] = {0, 0};
-    } else {
-        exit(EXIT_FAILURE);
+        data.speakerPositions[5] = { 0, 0 };
+    }
+    else
+    {
+        std::exit(EXIT_FAILURE);
     }
 
-    data.currentListenerPosition = {0, 0};
+    // Listener begins at origin
+    data.currentListenerPosition = { 0, 0 };
+}
 
-    for (int i = 0; i < CHANNEL_COUNT; i++) {
+// ============================
+// CHANNEL PHASES & VOLUMES
+// ============================
+static void initChannels(paTestData& data)
+{
+    for (int i = 0; i < CHANNEL_COUNT; i++)
+    {
         data.channelPhases[i] = 0;
+        data.channelVolumes[i] = 0;
     }
+}
 
-    PaStream* stream = startPlayback(&data);
+// ============================
+// PUBLIC INITIALIZER
+// Called by GUI BEFORE drawing
+// ============================
+void initAudioData()
+{
+    initWavetable(gData);
+    initRoomAndSpeakers(gData);
+    initChannels(gData);
+}
+
+// ============================
+// START AUDIO PLAYBACK
+// (Called by GUI thread)
+// ============================
+int start()
+{
+    // Ensure data is initialized
+    initAudioData();
+
+    PaStream* stream = startPlayback(&gData);
+    if (!stream)
+        return EXIT_FAILURE;
+
     endPlayback(stream);
-
     return EXIT_SUCCESS;
 }

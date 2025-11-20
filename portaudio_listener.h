@@ -7,7 +7,7 @@
 #define TABLE_SIZE          (SAMPLE_RATE / TONE_HZ)
 #define TONE_HZ             (200)
 #define SAMPLE_RATE         (44100)
-#define CHANNEL_COUNT       (6)
+#define CHANNEL_COUNT       (2)
 
 typedef struct {
     float x;
@@ -27,5 +27,7 @@ typedef struct
 PaStream* startPlayback(paTestData* data);
 
 void endPlayback(PaStream* stream);
+
+void SetOutputDeviceIndex(int index);  // PaDeviceIndex, or paNoDevice for default
 
 #endif
