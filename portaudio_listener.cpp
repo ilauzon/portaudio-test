@@ -1,4 +1,5 @@
-#include "portaudio_listener.h"
+#include "structs.h"
+#include "portaudio.h"
 #include "six_channel.h"
 #include <array>
 #include <cmath>
@@ -6,32 +7,23 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
+#include <math.h>
+#include <portaudio.h>
+#include <stdlib.h>
+#include <string>
 
-// PortAudio is already included by portaudio_listener.h via "portaudio.h"
+#define FRAMES_PER_BUFFER   (256)
+#ifndef M_PI
+#define M_PI (3.14159265)
+#endif
+#define REFERENCE_DISTANCE  (1.0f)
 
-// ------------ Global selected output device ------------
-// Set from the GUI via SetOutputDeviceIndex(...)
 static int gOutputDeviceIndex = paNoDevice;
 
 void SetOutputDeviceIndex(int index)
 {
     gOutputDeviceIndex = index;
 }
-
-// ------------ Constants ------------
-#define FRAMES_PER_BUFFER   (256)
-#include <math.h>
-#include <ostream>
-#include <portaudio.h>
-#include <stdio.h>
-#include <stdlib.h>
-
-#define FRAMES_PER_BUFFER (256)
-#ifndef M_PI
-#define M_PI (3.14159265)
-#endif
-#define REFERENCE_DISTANCE  (1.0f)
 
 // ------------ Helpers ------------
 
@@ -112,8 +104,7 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
     
             // Simple distance → gain mapping:
             // closer => louder, farther => quieter
-            // gain in (0, 1], safe for visualization and audio
-            float gain = REFERENCE_DISTANCE / (REFERENCE_DISTANCE + speakerDistance);
+            float gain = speakerDistance / REFERENCE_DISTANCE;
 
             // Store for GUI visualization
                 data->channelVolumes[c] = gain;

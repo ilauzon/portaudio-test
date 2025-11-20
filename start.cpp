@@ -1,7 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include "portaudio_listener.h"
-#include "six_channel.h"
 
 // Global audio data
 paTestData gData;
