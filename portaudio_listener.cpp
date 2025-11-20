@@ -1,10 +1,13 @@
 #include "portaudio_listener.h"
+#include "six_channel.h"
 #include <array>
 #include <cmath>
+#include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <math.h>
+#include <ostream>
 #include <portaudio.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +52,18 @@ Point getCircularCoordinates(float circularPosition, float radius) {
     return p;
 }
 
+std::string getSixChannelName(int channel) {
+    switch(channel) {
+        case SixChannelSetup::BackLeft:     return "BackLeft";
+        case SixChannelSetup::BackRight:    return "BackRight";
+        case SixChannelSetup::FrontLeft:    return "FrontLeft";
+        case SixChannelSetup::FrontRight:   return "FrontRight";
+        case SixChannelSetup::Centre:       return "Centre";
+        case SixChannelSetup::Subwoofer:    return "Subwoofer";
+        default: exit(EXIT_FAILURE);
+    }
+}
+
 static int paTestCallback(const void *inputBuffer, void *outputBuffer,
                           unsigned long framesPerBuffer,
                           const PaStreamCallbackTimeInfo *timeInfo,
@@ -62,22 +77,21 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
 
     for (unsigned long i = 0; i < framesPerBuffer; i++) {
         for (int c = 0; c < CHANNEL_COUNT; c++) {
-        float speakerDistance = distances[c];
-        float gainCompensation = speakerDistance / REFERENCE_DISTANCE;
-        data->channelVolumes[c] = gainCompensation;
+            float speakerDistance = distances[c];
+            float gainCompensation = speakerDistance / REFERENCE_DISTANCE;
+            data->channelVolumes[c] = gainCompensation;
 
-        // Change phase.
-        int phaseOffset = data->channelPhases[c];
-        data->channelPhases[c] += 1;
-        if (data->channelPhases[c] >= TABLE_SIZE)
-            data->channelPhases[c] -= TABLE_SIZE;
+            // Change phase.
+            int phaseOffset = data->channelPhases[c];
+            data->channelPhases[c] += 1;
+            if (data->channelPhases[c] >= TABLE_SIZE)
+                data->channelPhases[c] -= TABLE_SIZE;
 
-        // Change volume.
-        float amplitude = data->sine[phaseOffset] * gainCompensation;
-        *out++ = amplitude;
+            // Change volume.
+            float amplitude = data->sine[phaseOffset] * gainCompensation;
+            *out++ = amplitude;
         }
     }
-
     return paContinue;
 }
 
@@ -146,7 +160,7 @@ PaStream* startPlayback(paTestData *data) {
         for (int i = 0; i < totalSteps; i++) {
             float targetBalance = i / (float)totalSteps;
             Point targetPosition = getCircularCoordinates(targetBalance, 1);
-            printf("%f, %f\n", targetPosition.x, targetPosition.y);
+            // printf("%f, %f\n", targetPosition.x, targetPosition.y);
             data->currentListenerPosition.x = targetPosition.x;
             data->currentListenerPosition.y = targetPosition.y;
             Pa_Sleep((testPeriodInSec * 1000) / totalSteps);

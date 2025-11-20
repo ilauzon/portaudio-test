@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "portaudio_listener.h"
+#include "six_channel.h"
 
 
 int start() {
@@ -30,16 +31,15 @@ int start() {
         data.speakerPositions[1] = {-1, 0};
     } else if (CHANNEL_COUNT == 6) {
         // 0 deg
-        data.speakerPositions[0] = { 1.000, 0.000 };
-        // 72 deg
-        data.speakerPositions[1] = { 0.309, 0.951 };
-        // 144 deg
-        data.speakerPositions[2] = { -0.809, 0.588 };
-        // 216 deg
-        data.speakerPositions[3] = { -0.809, -0.588 };
-        // 288 deg
-        data.speakerPositions[4] = { 0.309, -0.951 };
-        data.speakerPositions[5] = {0, 0};
+        float step = 1 / 5.0f;
+        data.speakerPositions[SixChannelSetup::Centre] = getCircularCoordinates(step * 0, 1);
+        data.speakerPositions[SixChannelSetup::FrontRight] = getCircularCoordinates(step * 1, 1);
+        data.speakerPositions[SixChannelSetup::BackRight] = getCircularCoordinates(step * 2, 1);
+        data.speakerPositions[SixChannelSetup::BackLeft] = getCircularCoordinates(step * 3, 1);
+        data.speakerPositions[SixChannelSetup::FrontLeft] = getCircularCoordinates(step * 4, 1);
+
+        // ignored
+        data.speakerPositions[SixChannelSetup::Subwoofer] = {0, 0};
     } else {
         exit(EXIT_FAILURE);
     }
