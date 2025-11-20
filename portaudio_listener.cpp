@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <math.h>
 #include <portaudio.h>
 #include <stdio.h>
@@ -39,6 +40,15 @@ calculateSpeakerDistances(Point subjectPosition,
     return distances;
 }
 
+// Get the point in 2D space that corresponds to a single-value position around the circle's circumference.
+Point getCircularCoordinates(float circularPosition, float radius) {
+    float angle = circularPosition * 2.0f * M_PI;
+    Point p;
+    p.x = radius * cosf(angle);
+    p.y = radius * sinf(angle);
+    return p;
+}
+
 static int paTestCallback(const void *inputBuffer, void *outputBuffer,
                           unsigned long framesPerBuffer,
                           const PaStreamCallbackTimeInfo *timeInfo,
@@ -71,11 +81,10 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
     return paContinue;
 }
 
-int startPlayback(paTestData *data) {
+PaStream* startPlayback(paTestData *data) {
     PaError err;
     err = Pa_Initialize();
     checkErr(err);
-    int outputDevice = OUTPUT_DEVICE;
 
     int numDevices = Pa_GetDeviceCount();
     printf("Number of devices: %d\n", numDevices);
@@ -98,6 +107,11 @@ int startPlayback(paTestData *data) {
         printf("\tsdefaultSampleRate: %f\n", deviceInfo->defaultSampleRate);
     }
 
+    // prompt user for output device
+    int outputDevice;
+    std::cout << "Enter your output device: ";
+    std::cin >> outputDevice; // Program waits here for integer input
+
     PaStreamParameters outputParameters;
 
     memset(&outputParameters, 0, sizeof(outputParameters));
@@ -108,7 +122,7 @@ int startPlayback(paTestData *data) {
     outputParameters.suggestedLatency =
         Pa_GetDeviceInfo(outputDevice)->defaultLowOutputLatency;
 
-    PaStream *stream;
+    PaStream* stream;
     err = Pa_OpenStream(&stream, NULL, &outputParameters, SAMPLE_RATE,
                         FRAMES_PER_BUFFER, paNoFlag, paTestCallback, data);
     checkErr(err);
@@ -116,18 +130,34 @@ int startPlayback(paTestData *data) {
     err = Pa_StartStream(stream);
     checkErr(err);
 
-    // int stepsPerSec = 100;
-    // int testPeriodInSec = 10;
-    // int totalSteps = stepsPerSec * testPeriodInSec;
-    // for (int i = 0; i < totalSteps; i++) {
-    //     float targetBalance = i / (float)totalSteps;
-    //     data.targetListenerPosition = targetBalance;
-    //     Pa_Sleep((testPeriodInSec * 1000) / totalSteps);
-    // }
+    int stepsPerSec = 100;
+    int testPeriodInSec = 10;
+    int totalSteps = stepsPerSec * testPeriodInSec;
 
-    Pa_Sleep(10000);
+    if (CHANNEL_COUNT == 2) {
+        for (int i = 0; i < totalSteps; i++) {
+            float targetBalance = i / (float)totalSteps;
+            float targetX = 1 - targetBalance * 2;
+            printf("%f\n", targetX);
+            data->currentListenerPosition.x = targetX;
+            Pa_Sleep((testPeriodInSec * 1000) / totalSteps);
+        }
+    } else if (CHANNEL_COUNT == 6) {
+        for (int i = 0; i < totalSteps; i++) {
+            float targetBalance = i / (float)totalSteps;
+            Point targetPosition = getCircularCoordinates(targetBalance, 1);
+            printf("%f, %f\n", targetPosition.x, targetPosition.y);
+            data->currentListenerPosition.x = targetPosition.x;
+            data->currentListenerPosition.y = targetPosition.y;
+            Pa_Sleep((testPeriodInSec * 1000) / totalSteps);
+        }
+    }
 
-    err = Pa_StopStream(stream);
+    return stream;
+}
+
+void endPlayback(PaStream* stream) {
+    PaError err = Pa_StopStream(stream);
     checkErr(err);
 
     err = Pa_CloseStream(stream);
@@ -135,6 +165,4 @@ int startPlayback(paTestData *data) {
 
     err = Pa_Terminate();
     checkErr(err);
-
-    return EXIT_SUCCESS;
 }

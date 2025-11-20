@@ -25,9 +25,24 @@ int start() {
         data.sine[i] = amplitude; 
     }
 
-    if (CHANNEL_COUNT != 2) exit(EXIT_FAILURE);
-    data.speakerPositions[0] = {2, 0};
-    data.speakerPositions[1] = {0, 0.25};
+    if (CHANNEL_COUNT == 2) {
+        data.speakerPositions[0] = {1, 0};
+        data.speakerPositions[1] = {-1, 0};
+    } else if (CHANNEL_COUNT == 6) {
+        // 0 deg
+        data.speakerPositions[0] = { 1.000, 0.000 };
+        // 72 deg
+        data.speakerPositions[1] = { 0.309, 0.951 };
+        // 144 deg
+        data.speakerPositions[2] = { -0.809, 0.588 };
+        // 216 deg
+        data.speakerPositions[3] = { -0.809, -0.588 };
+        // 288 deg
+        data.speakerPositions[4] = { 0.309, -0.951 };
+        data.speakerPositions[5] = {0, 0};
+    } else {
+        exit(EXIT_FAILURE);
+    }
 
     data.currentListenerPosition = {0, 0};
 
@@ -35,7 +50,8 @@ int start() {
         data.channelPhases[i] = 0;
     }
 
-    startPlayback(&data);
+    PaStream* stream = startPlayback(&data);
+    endPlayback(stream);
 
     return EXIT_SUCCESS;
 }

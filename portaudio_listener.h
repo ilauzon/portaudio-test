@@ -2,10 +2,12 @@
 #ifndef PORTAUDIO_LISTENER_H
 #define PORTAUDIO_LISTENER_H
 
+#include "portaudio.h"
+
 #define TABLE_SIZE          (SAMPLE_RATE / TONE_HZ)
 #define TONE_HZ             (200)
 #define SAMPLE_RATE         (44100)
-#define CHANNEL_COUNT       (2)
+#define CHANNEL_COUNT       (6)
 
 typedef struct {
     float x;
@@ -22,6 +24,8 @@ typedef struct
     Point speakerPositions[CHANNEL_COUNT]; // the position of each speaker relative to subjectBounds, in offset metres.
 } paTestData;
 
-int startPlayback(paTestData* data);
+PaStream* startPlayback(paTestData* data);
+
+void endPlayback(PaStream* stream);
 
 #endif
