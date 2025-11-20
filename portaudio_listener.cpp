@@ -1,9 +1,12 @@
+#include <cmath>
+#include <cstdlib>
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <portaudio.h>
 #include <cstring>
 #include <string>
+#include <array>
 
 #define SAMPLE_RATE         (44100)
 #define FRAMES_PER_BUFFER   (256)
@@ -15,15 +18,22 @@
 #define TABLE_SIZE          (SAMPLE_RATE / TONE_HZ)
 #define ITD_MS              (0.5) /* Interaural Time Difference (ITD): The time it takes sound to traverse the distance between your ears */
 #define BALANCE_DELTA       (0.001)
-#define OUTPUT_DEVICE       (5)
+#define OUTPUT_DEVICE       (6)
+#define REFERENCE_DISTANCE  (1)
+
+typedef struct {
+    float x;
+    float y;
+} Point;
 
 typedef struct
 {
-    float sine[TABLE_SIZE];
-    int left_phase;
-    int right_phase;
-    float targetBalance; // 0.0 = left, 1.0 = right
-    float currentBalance;
+    float sine[TABLE_SIZE]; // the signal to play through all channels.
+    unsigned int channelPhases[CHANNEL_COUNT]; // the phase of each channel.
+    float channelVolumes[CHANNEL_COUNT]; // the volume of each channel, from 0 to 1.
+    Point currentListenerPosition; // currently targeted coordinates relative to subjectBounds, in offset metres.
+    Point subjectBounds[2]; // bounds for the listener, in metres.
+    Point speakerPositions[CHANNEL_COUNT]; // the position of each speaker relative to subjectBounds, in offset metres.
 } paTestData;
 
 static void checkErr(PaError err) {
@@ -37,6 +47,19 @@ static inline float max(float a, float b) {
     return a > b ? a : b;
 }
 
+std::array<float, CHANNEL_COUNT> calculateSpeakerDistances(Point subjectPosition, Point speakerPositions[CHANNEL_COUNT]) {
+    std::array<float, CHANNEL_COUNT> distances{};
+
+    for (int i = 0; i < CHANNEL_COUNT; i++) {
+        Point currentSpeaker = speakerPositions[i];
+        float xDiff = subjectPosition.x - currentSpeaker.x;
+        float yDiff = subjectPosition.y - currentSpeaker.y;
+        distances[i] = std::sqrt(xDiff * xDiff + yDiff * yDiff);
+    }
+
+    return distances;
+}
+
 static int paTestCallback(
         const void* inputBuffer,
         void* outputBuffer,
@@ -48,33 +71,23 @@ static int paTestCallback(
     paTestData *data = (paTestData*)userData;
     float* out = (float*)outputBuffer;
     (void)inputBuffer;
+
+    std::array<float, CHANNEL_COUNT> distances = calculateSpeakerDistances(data->currentListenerPosition, data->speakerPositions);
     
     for(unsigned long i = 0; i < framesPerBuffer; i++) {
-        // Smoothly pan between left and right.
-        // if( data->currentBalance < data->targetBalance )
-        // {
-        //     data->currentBalance += BALANCE_DELTA;
-        // }
-        // else if( data->currentBalance > data->targetBalance )
-        // {
-        //     data->currentBalance -= BALANCE_DELTA;
-        // }
+        for (int i = 0; i < CHANNEL_COUNT; i++) {
+            float speakerDistance = distances[i];
+            float gainCompensation = speakerDistance / REFERENCE_DISTANCE;
+            data->channelVolumes[i] = gainCompensation;
 
-        data->currentBalance = data->targetBalance;
-        // Apply left/right balance.
-        // Change phase.
-        int leftPhaseOffset = (int)(data->left_phase + (SAMPLE_RATE / 1000.0f * ITD_MS)) % TABLE_SIZE;
-        int rightPhaseOffset = (int)(data->right_phase + (SAMPLE_RATE / 1000.0f * ITD_MS)) % TABLE_SIZE;
-        // leftPhaseOffset = data->left_phase;
-        // rightPhaseOffset = data->left_phase;
-        // Change volume.
-        *out++ = data->sine[leftPhaseOffset] * (0.75f - data->currentBalance * 0.5f);  /* left */
-        *out++ = data->sine[rightPhaseOffset] * (0.25f + data->currentBalance * 0.5f);  /* right */
+            // Change phase.
+            int phaseOffset = data->channelPhases[i];
+            data->channelPhases[i] += 1;
+            if( data->channelPhases[i] >= TABLE_SIZE ) data->channelPhases[i] -= TABLE_SIZE;
 
-        data->left_phase += 1;
-        if( data->left_phase >= TABLE_SIZE ) data->left_phase -= TABLE_SIZE;
-        data->right_phase += 1;
-        if( data->right_phase >= TABLE_SIZE ) data->right_phase -= TABLE_SIZE;
+            // Change volume.
+            *out++ = data->sine[phaseOffset] * (gainCompensation);
+        }
     }
 
     return paContinue;
@@ -127,9 +140,12 @@ int startPlayback() {
 
         data.sine[i] = amplitude; 
     }
-    data.left_phase = data.right_phase = 0;
-    data.currentBalance = 0.0;
-    data.targetBalance = 0.0;
+
+    if (CHANNEL_COUNT != 2) exit(EXIT_FAILURE);
+    data.speakerPositions[0] = {2, 0};
+    data.speakerPositions[1] = {0, 0.25};
+
+    data.currentListenerPosition = {0, 0};
 
     PaStreamParameters outputParameters;
 
@@ -156,14 +172,16 @@ int startPlayback() {
     err = Pa_StartStream(stream);
     checkErr(err);
 
-    int stepsPerSec = 100;
-    int testPeriodInSec = 10;
-    int totalSteps = stepsPerSec * testPeriodInSec;
-    for (int i = 0; i < totalSteps; i++) {
-        float targetBalance = i / (float)totalSteps;
-        data.targetBalance = targetBalance;
-        Pa_Sleep((testPeriodInSec * 1000) / totalSteps);
-    }
+    // int stepsPerSec = 100;
+    // int testPeriodInSec = 10;
+    // int totalSteps = stepsPerSec * testPeriodInSec;
+    // for (int i = 0; i < totalSteps; i++) {
+    //     float targetBalance = i / (float)totalSteps;
+    //     data.targetListenerPosition = targetBalance;
+    //     Pa_Sleep((testPeriodInSec * 1000) / totalSteps);
+    // }
+
+    Pa_Sleep(10000);
 
     err = Pa_StopStream(stream);
     checkErr(err);
