@@ -8,7 +8,7 @@ WX_CXXFLAGS := $(shell $(WX_CONFIG) --cxxflags)
 WX_LIBS := $(shell $(WX_CONFIG) --libs)
 
 $(EXEC): $(CPP_FILES)
-	$(CC) $(WX_CXXFLAGS) -o $@ $^ $(CFLAGS) $(WX_LIBS)
+	$(CC) -g $(WX_CXXFLAGS) -o $@ $^ $(CFLAGS) $(WX_LIBS)
 
 install-deps:
 	mkdir -p lib
@@ -23,7 +23,7 @@ uninstall-deps:
 .PHONY: uninstall-deps
 
 run:
-	./$(EXEC) $(OUTPUT_DEVICE)
+	./$(EXEC)
 
 clean:
 	rm -f $(EXEC)
