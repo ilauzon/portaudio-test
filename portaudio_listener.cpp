@@ -176,8 +176,8 @@ PaStream* startPlayback(paTestData *data)
         // Move listener around a circle
         for (int i = 0; i < totalSteps; ++i)
         {
-            float t = i / (float)totalSteps;   // 0..1
-            Point targetPosition = getCircularCoordinates(t, 1.0f);
+            float t = i / (float)totalSteps + 0.25;   // 0..1
+            Point targetPosition = getCircularCoordinates(t, 0.75f);
             data->currentListenerPosition.x = targetPosition.x;
             data->currentListenerPosition.y = targetPosition.y;
             Pa_Sleep(sleepMs);
