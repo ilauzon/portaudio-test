@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
+#include "utils.h"
 #include "portaudio_listener.h"
 
 // Global audio data

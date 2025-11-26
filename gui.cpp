@@ -11,6 +11,7 @@
 #include "start.h"                 // int start(); void initAudioData();
 #include "portaudio_listener.h"    // paTestData, CHANNEL_COUNT, etc.
 
+#include <cstdlib>
 #include <wx/wxprec.h>
 #ifndef WX_PRECOMP
 #include <wx/wx.h>
@@ -77,13 +78,6 @@ private:
         float maxX = m_data->subjectBounds[1].x;
         float maxY = m_data->subjectBounds[1].y;
 
-        if (maxX <= minX || maxY <= minY)
-        {
-            // Fallback if not set: a 2x2 square around origin
-            minX = minY = -1.0f;
-            maxX = maxY =  1.0f;
-        }
-
         // Determine maximum extents to keep room within panel with margin
         const int margin = 20;
         float maxAbsX = std::max(std::fabs(minX), std::fabs(maxX));
@@ -124,8 +118,8 @@ private:
         {
             // Clamp volume between 0 and 1
             float vol = m_data->channelVolumes[i];
-            if (vol < 0.0f) vol = 0.0f;
-            if (vol > 1.0f) vol = 1.0f;
+            // if (vol < 0.0f) vol = 0.0f;
+            // if (vol > 1.0f) vol = 1.0f;
 
             Point sp = m_data->speakerPositions[i];
             wxPoint p = worldToScreen(sp.x, sp.y, w, h, scale);
@@ -161,6 +155,7 @@ private:
             if (vol > 0.0f)
             {
                 float t = vol;
+                // float t = m_data->maxGain - (vol / m_data->maxGain);
 
                 wxPoint D(baseX + (int)(sliderMaxWidth * t), baseY); // on AB
                 wxPoint E(

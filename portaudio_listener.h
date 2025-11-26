@@ -1,7 +1,7 @@
 #pragma once
 
 #include "portaudio.h"
-#include "structs.h"
+#include "utils.h"
 
 Point getCircularCoordinates(float circularPosition, float radius);
 

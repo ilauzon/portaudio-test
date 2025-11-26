@@ -1,6 +1,5 @@
-#include "structs.h"
+#include "utils.h"
 #include "portaudio.h"
-#include "six_channel.h"
 #include <array>
 #include <cmath>
 #include <csignal>
@@ -10,13 +9,11 @@
 #include <math.h>
 #include <portaudio.h>
 #include <stdlib.h>
-#include <string>
 
 #define FRAMES_PER_BUFFER   (256)
 #ifndef M_PI
 #define M_PI (3.14159265)
 #endif
-#define REFERENCE_DISTANCE  (1.0f)
 
 static int gOutputDeviceIndex = paNoDevice;
 
@@ -34,47 +31,6 @@ static void checkErr(PaError err)
         std::printf("PortAudio error: %s\n", Pa_GetErrorText(err));
         std::fflush(stdout);
         std::exit(EXIT_FAILURE);
-    }
-}
-
-// distance from listener to each speaker
-static std::array<float, CHANNEL_COUNT>
-calculateSpeakerDistances(Point subjectPosition,
-                          const Point speakerPositions[CHANNEL_COUNT])
-{
-    std::array<float, CHANNEL_COUNT> distances{};
-
-    for (int i = 0; i < CHANNEL_COUNT; ++i)
-    {
-        Point currentSpeaker = speakerPositions[i];
-        float xDiff = subjectPosition.x - currentSpeaker.x;
-        float yDiff = subjectPosition.y - currentSpeaker.y;
-        distances[i] = std::sqrt(xDiff * xDiff + yDiff * yDiff);
-    }
-
-    return distances;
-}
-
-// Get the point in 2D space that corresponds to a single-value position
-// around the circle's circumference.
-static Point getCircularCoordinates(float circularPosition, float radius)
-{
-    float angle = circularPosition * 2.0f * M_PI;
-    Point p;
-    p.x = radius * std::cos(angle);
-    p.y = radius * std::sin(angle);
-    return p;
-}
-
-std::string getSixChannelName(int channel) {
-    switch(channel) {
-        case SixChannelSetup::BackLeft:     return "BackLeft";
-        case SixChannelSetup::BackRight:    return "BackRight";
-        case SixChannelSetup::FrontLeft:    return "FrontLeft";
-        case SixChannelSetup::FrontRight:   return "FrontRight";
-        case SixChannelSetup::Centre:       return "Centre";
-        case SixChannelSetup::Subwoofer:    return "Subwoofer";
-        default: exit(EXIT_FAILURE);
     }
 }
 
@@ -104,7 +60,7 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
     
             // Simple distance → gain mapping:
             // closer => louder, farther => quieter
-            float gain = speakerDistance / REFERENCE_DISTANCE;
+            float gain = distanceToGain(speakerDistance);
 
             // Store for GUI visualization
                 data->channelVolumes[c] = gain;
