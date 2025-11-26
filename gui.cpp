@@ -155,7 +155,6 @@ private:
             if (vol > 0.0f)
             {
                 float t = vol;
-                // float t = m_data->maxGain - (vol / m_data->maxGain);
 
                 wxPoint D(baseX + (int)(sliderMaxWidth * t), baseY); // on AB
                 wxPoint E(

@@ -60,7 +60,7 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
     
             // Simple distance → gain mapping:
             // closer => louder, farther => quieter
-            float gain = distanceToGain(speakerDistance);
+            float gain = distanceToGain(speakerDistance) / data->maxGain;
 
             // Store for GUI visualization
                 data->channelVolumes[c] = gain;

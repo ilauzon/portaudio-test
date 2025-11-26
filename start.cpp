@@ -57,6 +57,7 @@ static void initRoomAndSpeakers(paTestData& data)
 
     // Listener begins at origin
     data.currentListenerPosition = { 0, 0 };
+    setMaxGain(&data);
 }
 
 // ============================
