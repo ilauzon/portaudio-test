@@ -2,6 +2,7 @@
 //
 // wxWidgets GUI with:
 // - Device selection (output-only)
+// - Mode selection: Interactive (drag) vs Follow stdin (no dragging)
 // - Room + speakers visualization
 // - Live-updating volume sliders (short, wide right triangles with sweep fill)
 // - Background audio thread
@@ -12,6 +13,9 @@
 #include "portaudio_listener.h"    // paTestData, CHANNEL_COUNT, etc.
 
 #include <cstdlib>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <wx/wxprec.h>
 #ifndef WX_PRECOMP
 #include <wx/wx.h>
@@ -39,18 +43,78 @@ void SetOutputDeviceIndex(int index);  // PaDeviceIndex, or paNoDevice for defau
 class SpeakerPanel : public wxPanel
 {
 public:
-    SpeakerPanel(wxWindow* parent, paTestData* data)
-        : wxPanel(parent), m_data(data)
+    SpeakerPanel(wxWindow* parent, paTestData* data, bool interactiveMode)
+        : wxPanel(parent)
+        , m_data(data)
+        , m_interactive(interactiveMode)
     {
         SetBackgroundStyle(wxBG_STYLE_PAINT);
         Bind(wxEVT_PAINT, &SpeakerPanel::OnPaint, this);
+
+        // Always bind mouse events; we gate behaviour with m_interactive
+        Bind(wxEVT_LEFT_DOWN,    &SpeakerPanel::OnLeftDown,   this);
+        Bind(wxEVT_LEFT_UP,      &SpeakerPanel::OnLeftUp,     this);
+        Bind(wxEVT_MOTION,       &SpeakerPanel::OnMouseMove,  this);
+        Bind(wxEVT_LEAVE_WINDOW, &SpeakerPanel::OnMouseLeave, this);
+    }
+
+    void SetInteractive(bool interactive)
+    {
+        m_interactive = interactive;
+        // Clear any drag state when we switch modes
+        m_mouseDown        = false;
+        m_draggingListener = false;
+        m_dragSpeakerIndex = -1;
+        m_selectedSpeaker  = -1;
+        if (HasCapture())
+            ReleaseMouse();
+        Refresh();
     }
 
 private:
     paTestData* m_data = nullptr;
 
+    bool m_interactive       = true;
+    bool m_mouseDown         = false;
+    bool m_draggingListener  = false;
+    int  m_dragSpeakerIndex  = -1;   // which speaker we're dragging
+    int  m_selectedSpeaker   = -1;   // which speaker to show distances from
+
+    // Compute scale and bounds for current subject, keeping a margin.
+    float computeScaleForCurrentBounds(int w, int h,
+                                       float& minX, float& minY,
+                                       float& maxX, float& maxY) const
+    {
+        if (!m_data)
+        {
+            minX = minY = -1.0f;
+            maxX = maxY =  1.0f;
+            return 1.0f;
+        }
+
+        minX = m_data->subjectBounds[0].x;
+        minY = m_data->subjectBounds[0].y;
+        maxX = m_data->subjectBounds[1].x;
+        maxY = m_data->subjectBounds[1].y;
+
+        const int margin = 20;
+
+        float maxAbsX = std::max(std::fabs(minX), std::fabs(maxX));
+        float maxAbsY = std::max(std::fabs(minY), std::fabs(maxY));
+
+        if (maxAbsX < 0.001f) maxAbsX = 1.0f;
+        if (maxAbsY < 0.001f) maxAbsY = 1.0f;
+
+        float scaleX = (w / 2.0f - margin) / maxAbsX;
+        float scaleY = (h / 2.0f - margin) / maxAbsY;
+        float scale  = (scaleX < scaleY ? scaleX : scaleY);
+        if (scale <= 0.0f) scale = 1.0f;
+
+        return scale;
+    }
+
     // Fixed world->screen mapping: (0,0) is center of panel
-    wxPoint worldToScreen(float x, float y, int w, int h, float scale)
+    wxPoint worldToScreen(float x, float y, int w, int h, float scale) const
     {
         float cx = w * 0.5f;
         float cy = h * 0.5f;
@@ -59,6 +123,17 @@ private:
         float sy = cy - y * scale; // invert Y so +Y is up
 
         return wxPoint((int)sx, (int)sy);
+    }
+
+    Point screenToWorld(int px, int py, int w, int h, float scale) const
+    {
+        float cx = w * 0.5f;
+        float cy = h * 0.5f;
+
+        float x = (px - cx) / scale;
+        float y = (cy - py) / scale; // invert Y back
+
+        return Point{ x, y };
     }
 
     void OnPaint(wxPaintEvent& event)
@@ -73,22 +148,8 @@ private:
         GetClientSize(&w, &h);
 
         // ----- Fixed coordinate system -----
-        float minX = m_data->subjectBounds[0].x;
-        float minY = m_data->subjectBounds[0].y;
-        float maxX = m_data->subjectBounds[1].x;
-        float maxY = m_data->subjectBounds[1].y;
-
-        // Determine maximum extents to keep room within panel with margin
-        const int margin = 20;
-        float maxAbsX = std::max(std::fabs(minX), std::fabs(maxX));
-        float maxAbsY = std::max(std::fabs(minY), std::fabs(maxY));
-
-        if (maxAbsX < 0.001f) maxAbsX = 1.0f;
-        if (maxAbsY < 0.001f) maxAbsY = 1.0f;
-
-        float scaleX = (w / 2.0f - margin) / maxAbsX;
-        float scaleY = (h / 2.0f - margin) / maxAbsY;
-        float scale  = (scaleX < scaleY ? scaleX : scaleY);
+        float minX, minY, maxX, maxY;
+        float scale = computeScaleForCurrentBounds(w, h, minX, minY, maxX, maxY);
 
         // ----- Draw room rectangle using worldToScreen -----
         dc.SetPen(*wxBLACK_PEN);
@@ -97,7 +158,6 @@ private:
         wxPoint topLeft     = worldToScreen(minX, maxY, w, h, scale);
         wxPoint topRight    = worldToScreen(maxX, maxY, w, h, scale);
         wxPoint bottomLeft  = worldToScreen(minX, minY, w, h, scale);
-        // wxPoint bottomRight = worldToScreen(maxX, minY, w, h, scale);
 
         int roomX   = topLeft.x;
         int roomY   = topLeft.y;
@@ -116,10 +176,7 @@ private:
 
         for (int i = 0; i < CHANNEL_COUNT; ++i)
         {
-            // Clamp volume between 0 and 1
             float vol = m_data->channelGains[i];
-            // if (vol < 0.0f) vol = 0.0f;
-            // if (vol > 1.0f) vol = 1.0f;
 
             Point sp = m_data->speakerPositions[i];
             wxPoint p = worldToScreen(sp.x, sp.y, w, h, scale);
@@ -146,12 +203,7 @@ private:
             dc.SetBrush(wxBrush(wxColour(220, 220, 220)));
             dc.DrawPolygon(3, bgTri);
 
-            // Filled region for current volume:
-            //  A is fixed (bottom-left)
-            //  D moves along AB
-            //  E moves along the slanted edge CB
-            //
-            // Param t = vol in [0,1]
+            // Filled region for current volume
             if (vol > 0.0f)
             {
                 float t = vol;
@@ -193,22 +245,19 @@ private:
         // ----- Draw listener facing direction -----
         float yawRadians = -m_data->listenerYaw * 2.0f * M_PI; // 0..1 → 0..2π
 
-        // Length of the line/cone in world units
-        float dirLength = 1.0f; // 1 metre; adjust as needed
+        float dirLength = 1.0f; // metres
 
-        // Compute end point
         float endX = L.x + dirLength * std::sin(yawRadians); // X points right
         float endY = L.y + dirLength * std::cos(yawRadians); // Y points forward
 
         wxPoint endPoint = worldToScreen(endX, endY, w, h, scale);
 
-        // Draw simple line
         dc.SetPen(wxPen(*wxRED, 2)); // red line for facing direction
         dc.DrawLine(lp, endPoint);
 
-        // Optional: draw a triangular “cone” to indicate field of view
-        float coneAngle = 15.0f * (M_PI / 180.0f); // 15° half-angle
-        float coneLength = dirLength * 0.8f;       // slightly shorter than line
+        float coneAngle  = 15.0f * (M_PI / 180.0f); // 15° half-angle
+        float coneLength = dirLength * 0.8f;        // slightly shorter
+
         wxPoint leftTip = worldToScreen(
             L.x + coneLength * std::sin(yawRadians - coneAngle),
             L.y + coneLength * std::cos(yawRadians - coneAngle),
@@ -224,18 +273,182 @@ private:
         dc.SetPen(*wxTRANSPARENT_PEN);
         dc.SetBrush(wxBrush(wxColour(255, 0, 0, 80))); // semi-transparent red
         dc.DrawPolygon(3, conePoly);
+
+        // ----- Distance overlay from selected speaker -----
+        if (m_interactive &&
+            m_mouseDown &&
+            m_selectedSpeaker >= 0 &&
+            m_selectedSpeaker < CHANNEL_COUNT)
+        {
+            Point spSel = m_data->speakerPositions[m_selectedSpeaker];
+            wxPoint pSel = worldToScreen(spSel.x, spSel.y, w, h, scale);
+
+            dc.SetPen(wxPen(*wxBLACK, 1, wxPENSTYLE_DOT));
+
+            for (int i = 0; i < CHANNEL_COUNT; ++i)
+            {
+                if (i == m_selectedSpeaker)
+                    continue;
+
+                Point sp = m_data->speakerPositions[i];
+                wxPoint p = worldToScreen(sp.x, sp.y, w, h, scale);
+
+                // Line between speakers
+                dc.DrawLine(pSel, p);
+
+                // Distance label (world units -> metres)
+                float dx = sp.x - spSel.x;
+                float dy = sp.y - spSel.y;
+                float dist = std::sqrt(dx*dx + dy*dy);
+
+                wxString lbl;
+                lbl.Printf("%.2f m", dist);
+
+                int midX = (pSel.x + p.x) / 2;
+                int midY = (pSel.y + p.y) / 2;
+                dc.DrawText(lbl, midX + 3, midY + 3);
+            }
+        }
+    }
+
+    void OnLeftDown(wxMouseEvent& evt)
+    {
+        if (!m_interactive || !m_data)
+            return;
+
+        int w, h;
+        GetClientSize(&w, &h);
+
+        float minX, minY, maxX, maxY;
+        float scale = computeScaleForCurrentBounds(w, h, minX, minY, maxX, maxY);
+
+        wxPoint mousePos = evt.GetPosition();
+
+        // ----- Hit-test listener -----
+        Point L = m_data->currentListenerPosition;
+        wxPoint lp = worldToScreen(L.x, L.y, w, h, scale);
+
+        int dx = mousePos.x - lp.x;
+        int dy = mousePos.y - lp.y;
+        int dist2 = dx*dx + dy*dy;
+        const int listenerRadiusPx = 10;
+
+        if (dist2 <= listenerRadiusPx * listenerRadiusPx)
+        {
+            m_mouseDown        = true;
+            m_draggingListener = true;
+            m_dragSpeakerIndex = -1;
+            m_selectedSpeaker  = -1;
+            CaptureMouse();
+            Refresh();
+            return;
+        }
+
+        // ----- Hit-test speakers -----
+        const int speakerBoxSize = 12;
+        int halfBox = speakerBoxSize / 2;
+
+        for (int i = 0; i < CHANNEL_COUNT; ++i)
+        {
+            Point sp = m_data->speakerPositions[i];
+            wxPoint p = worldToScreen(sp.x, sp.y, w, h, scale);
+
+            wxRect rect(p.x - halfBox, p.y - halfBox,
+                        speakerBoxSize, speakerBoxSize);
+
+            if (rect.Contains(mousePos))
+            {
+                m_mouseDown        = true;
+                m_draggingListener = false;
+                m_dragSpeakerIndex = i;
+                m_selectedSpeaker  = i; // for distance overlay
+                CaptureMouse();
+                Refresh();
+                return;
+            }
+        }
+    }
+
+    void OnMouseMove(wxMouseEvent& evt)
+    {
+        if (!m_interactive || !m_mouseDown || !m_data)
+            return;
+
+        int w, h;
+        GetClientSize(&w, &h);
+
+        float minX, minY, maxX, maxY;
+        float scale = computeScaleForCurrentBounds(w, h, minX, minY, maxX, maxY);
+
+        wxPoint mousePos = evt.GetPosition();
+        Point world = screenToWorld(mousePos.x, mousePos.y, w, h, scale);
+
+        if (m_draggingListener)
+        {
+            m_data->currentListenerPosition = world;
+        }
+        else if (m_dragSpeakerIndex >= 0 &&
+                 m_dragSpeakerIndex < CHANNEL_COUNT)
+        {
+            m_data->speakerPositions[m_dragSpeakerIndex] = world;
+        }
+
+        Refresh();
+    }
+
+    void OnLeftUp(wxMouseEvent& evt)
+    {
+        if (!m_interactive)
+            return;
+
+        m_mouseDown        = false;
+        m_draggingListener = false;
+        m_dragSpeakerIndex = -1;
+        m_selectedSpeaker  = -1;
+
+        if (HasCapture())
+            ReleaseMouse();
+
+        Refresh();
+    }
+
+    void OnMouseLeave(wxMouseEvent& evt)
+    {
+        if (!m_interactive)
+            return;
+
+        if (m_mouseDown && HasCapture())
+            ReleaseMouse();
+
+        m_mouseDown        = false;
+        m_draggingListener = false;
+        m_dragSpeakerIndex = -1;
+        m_selectedSpeaker  = -1;
+
+        Refresh();
     }
 };
 
+// ============================================================
+//   Main window (MyFrame) with device selection + timer + mode
+// ============================================================
 
-// ============================================================
-//   Main window (MyFrame) with device selection + timer
-// ============================================================
+enum
+{
+    ID_Hello = 1,
+    ID_TimerRefresh,
+    ID_DeviceChoice,
+    ID_StartAudio,
+    ID_ModeChoice
+};
 
 class MyFrame : public wxFrame
 {
 public:
-    MyFrame();
+    MyFrame(bool interactiveMode);
+
+private:
+    bool m_interactiveMode = true;
 
 private:
     void OnStartAudio(wxCommandEvent &event);
@@ -244,29 +457,21 @@ private:
     void OnHello(wxCommandEvent &event);
     void OnTimer(wxTimerEvent &event);
     void OnDeviceChoice(wxCommandEvent &event);
+    void OnModeChoice(wxCommandEvent &event);
 
-    void InitOutputDevices();
+    wxTimer       m_timer;
+    wxChoice*     m_deviceChoice = nullptr;
+    wxChoice*     m_modeChoice   = nullptr;
+    SpeakerPanel* m_panel        = nullptr;
 
-    SpeakerPanel* m_panel = nullptr;
-    bool m_isPlaying = false;
-    wxTimer m_timer;
-
-    wxChoice* m_deviceChoice = nullptr;
-    std::vector<int> m_outputDeviceIndices; // PaDeviceIndex values
-    int m_selectedDeviceIndex = paNoDevice;
+    // Keep track of which PaDeviceIndex each wxChoice entry corresponds to
+    std::vector<int> m_outputDeviceIndices;
 };
 
-enum
-{
-    ID_Hello = wxID_HIGHEST + 1,
-    ID_StartAudio,
-    ID_TimerRefresh,
-    ID_DeviceChoice
-};
-
-MyFrame::MyFrame()
+MyFrame::MyFrame(bool interactiveMode)
     : wxFrame(nullptr, wxID_ANY, "PortAudio + wxWidgets (Live Volumes)",
-              wxDefaultPosition, wxSize(900, 600)),
+              wxDefaultPosition, wxSize(980, 600)),
+      m_interactiveMode(interactiveMode),
       m_timer(this, ID_TimerRefresh)
 {
     // ----- Menus -----
@@ -285,24 +490,37 @@ MyFrame::MyFrame()
 
     // ----- Status bar -----
     CreateStatusBar();
-    SetStatusText("Ready.");
+    if (m_interactiveMode)
+        SetStatusText("Interactive mode: drag listener & speakers.");
+    else
+        SetStatusText("Stdin mode: positions controlled via stdin.");
 
     // ----- Layout: device row + panel + button -----
-    wxPanel* rootPanel = new wxPanel(this);
+    wxPanel* rootPanel  = new wxPanel(this);
     wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
 
-    // Device selection row
+    // Device + mode selection row
     wxBoxSizer* deviceSizer = new wxBoxSizer(wxHORIZONTAL);
+
     deviceSizer->Add(new wxStaticText(rootPanel, wxID_ANY, "Output device:"),
                      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
 
     m_deviceChoice = new wxChoice(rootPanel, ID_DeviceChoice);
-    deviceSizer->Add(m_deviceChoice, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
+    deviceSizer->Add(m_deviceChoice, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 15);
+
+    deviceSizer->Add(new wxStaticText(rootPanel, wxID_ANY, "Mode:"),
+                     0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+
+    m_modeChoice = new wxChoice(rootPanel, ID_ModeChoice);
+    m_modeChoice->Append("Interactive (drag)");
+    m_modeChoice->Append("Follow stdin (no dragging)");
+    m_modeChoice->SetSelection(m_interactiveMode ? 0 : 1);
+    deviceSizer->Add(m_modeChoice, 0, wxALIGN_CENTER_VERTICAL);
 
     mainSizer->Add(deviceSizer, 0, wxEXPAND | wxALL, 10);
 
     // Visualization panel
-    m_panel = new SpeakerPanel(rootPanel, &gData);
+    m_panel = new SpeakerPanel(rootPanel, &gData, m_interactiveMode);
     mainSizer->Add(m_panel, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
 
     // Start button
@@ -311,42 +529,30 @@ MyFrame::MyFrame()
 
     rootPanel->SetSizer(mainSizer);
 
-    // ----- Event bindings -----
-    startBtn->Bind(wxEVT_BUTTON, &MyFrame::OnStartAudio, this);
-    m_deviceChoice->Bind(wxEVT_CHOICE, &MyFrame::OnDeviceChoice, this);
+    // ----- Timer for periodic refresh -----
+    m_timer.Start(50); // ~20 FPS
 
-    Bind(wxEVT_MENU, &MyFrame::OnHello, this, ID_Hello);
-    Bind(wxEVT_MENU, &MyFrame::OnAbout, this, wxID_ABOUT);
-    Bind(wxEVT_MENU, &MyFrame::OnExit, this, wxID_EXIT);
-    Bind(wxEVT_TIMER, &MyFrame::OnTimer, this, ID_TimerRefresh);
+    // Events
+    Bind(wxEVT_TIMER,        &MyFrame::OnTimer,        this, ID_TimerRefresh);
+    Bind(wxEVT_MENU,         &MyFrame::OnExit,         this, wxID_EXIT);
+    Bind(wxEVT_MENU,         &MyFrame::OnAbout,        this, wxID_ABOUT);
+    Bind(wxEVT_MENU,         &MyFrame::OnHello,        this, ID_Hello);
+    Bind(wxEVT_CHOICE,       &MyFrame::OnDeviceChoice, this, ID_DeviceChoice);
+    Bind(wxEVT_CHOICE,       &MyFrame::OnModeChoice,   this, ID_ModeChoice);
+    Bind(wxEVT_BUTTON,       &MyFrame::OnStartAudio,   this, ID_StartAudio);
 
-    // ----- Enumerate devices (output-only) -----
-    InitOutputDevices();
-
-    // ----- Start timer for live animation (≈30 FPS) -----
-    m_timer.Start(33); // 33ms ~ 30 FPS
-}
-
-void MyFrame::InitOutputDevices()
-{
-    m_outputDeviceIndices.clear();
-    m_deviceChoice->Clear();
-    m_selectedDeviceIndex = paNoDevice;
-
+    // Enumerate audio devices
     PaError err = Pa_Initialize();
     if (err != paNoError)
     {
-        wxMessageBox("Failed to initialize PortAudio for device listing.",
-                     "Error", wxOK | wxICON_ERROR);
+        wxLogError("PortAudio error: %s", Pa_GetErrorText(err));
         return;
     }
 
     int numDevices = Pa_GetDeviceCount();
     if (numDevices < 0)
     {
-        wxMessageBox("No audio devices found.",
-                     "Error", wxOK | wxICON_ERROR);
-        Pa_Terminate();
+        wxLogError("PortAudio error: Pa_GetDeviceCount returned %d", numDevices);
         return;
     }
 
@@ -377,94 +583,90 @@ void MyFrame::InitOutputDevices()
             choiceIndexForDefault = currentChoiceIndex;
     }
 
-    // Select default output device if found
-    if (choiceIndexForDefault >= 0)
+    if (!m_outputDeviceIndices.empty())
     {
-        m_deviceChoice->SetSelection(choiceIndexForDefault);
-        m_selectedDeviceIndex = m_outputDeviceIndices[choiceIndexForDefault];
-        SetOutputDeviceIndex(m_selectedDeviceIndex);
-    }
-    else if (!m_outputDeviceIndices.empty())
-    {
-        m_deviceChoice->SetSelection(0);
-        m_selectedDeviceIndex = m_outputDeviceIndices[0];
-        SetOutputDeviceIndex(m_selectedDeviceIndex);
+        int toSelect = (choiceIndexForDefault >= 0)
+                       ? choiceIndexForDefault
+                       : 0;
+        m_deviceChoice->SetSelection(toSelect);
+        SetOutputDeviceIndex(m_outputDeviceIndices[toSelect]);
     }
 
-    Pa_Terminate();
+    // Ensure panel respects initial mode
+    if (m_panel)
+        m_panel->SetInteractive(m_interactiveMode);
 }
 
-void MyFrame::OnDeviceChoice(wxCommandEvent &)
+void MyFrame::OnStartAudio(wxCommandEvent &event)
 {
-    int sel = m_deviceChoice->GetSelection();
-    if (sel == wxNOT_FOUND)
-        return;
-
-    if (sel >= 0 && sel < (int)m_outputDeviceIndices.size())
-    {
-        m_selectedDeviceIndex = m_outputDeviceIndices[sel];
-        SetOutputDeviceIndex(m_selectedDeviceIndex);
-        wxLogMessage("Selected output device index: %d", m_selectedDeviceIndex);
-    }
-}
-
-void MyFrame::OnStartAudio(wxCommandEvent &)
-{
-    if (m_isPlaying)
-    {
-        wxLogMessage("Audio is already playing.");
-        return;
-    }
-
-    if (m_selectedDeviceIndex == paNoDevice)
-    {
-        wxMessageBox("Please select an output device first.",
-                     "No device selected",
-                     wxOK | wxICON_WARNING);
-        return;
-    }
-
-    m_isPlaying = true;
-    SetStatusText("Audio running...");
-
-    // Run start() (PortAudio) in background thread
-    std::thread([this]() {
-        int result = start(); // Uses gData + selected device via SetOutputDeviceIndex
-
-        wxTheApp->CallAfter([this, result]() {
-            SetStatusText(result == 0 ? "Audio finished." : "Audio error.");
-            m_isPlaying = false;
+    // Start the audio processing in a background thread
+    std::thread audioThread([]() {
+        int result = start();
+        wxTheApp->CallAfter([result]() {
+            wxFrame* top = dynamic_cast<wxFrame*>(wxTheApp->GetTopWindow());
+            if (top)
+            {
+                top->SetStatusText(result == 0 ? "Audio finished." : "Audio error.");
+            }
         });
-    }).detach();
+    });
+    audioThread.detach();
+
+    SetStatusText("Audio running...");
 }
 
-void MyFrame::OnHello(wxCommandEvent &)
-{
-    wxLogMessage("Hello from wxWidgets!");
-}
-
-void MyFrame::OnAbout(wxCommandEvent &)
-{
-    wxMessageBox("wxWidgets + PortAudio live volume visualization demo.",
-                 "About",
-                 wxOK | wxICON_INFORMATION);
-}
-
-void MyFrame::OnExit(wxCommandEvent &)
+void MyFrame::OnExit(wxCommandEvent &event)
 {
     Close(true);
 }
 
-// Timer callback: refresh the panel so it reads latest volumes
-void MyFrame::OnTimer(wxTimerEvent &)
+void MyFrame::OnAbout(wxCommandEvent &event)
 {
-    if (m_panel)
-        m_panel->Refresh();
+    wxMessageBox("PortAudio + wxWidgets example with live volume visuals.",
+                 "About", wxOK | wxICON_INFORMATION);
 }
 
+void MyFrame::OnHello(wxCommandEvent &event)
+{
+    wxLogMessage("Hello from wxWidgets!");
+}
+
+void MyFrame::OnTimer(wxTimerEvent &event)
+{
+    if (m_panel)
+    {
+        m_panel->Refresh(false);
+    }
+}
+
+void MyFrame::OnDeviceChoice(wxCommandEvent &event)
+{
+    int selection = m_deviceChoice->GetSelection();
+    if (selection < 0 || selection >= (int)m_outputDeviceIndices.size())
+        return;
+
+    int paDeviceIndex = m_outputDeviceIndices[selection];
+    SetOutputDeviceIndex(paDeviceIndex);
+}
+
+void MyFrame::OnModeChoice(wxCommandEvent &event)
+{
+    int sel = m_modeChoice ? m_modeChoice->GetSelection() : 0;
+    bool interactive = (sel == 0);
+
+    m_interactiveMode = interactive;
+
+    if (m_panel)
+        m_panel->SetInteractive(m_interactiveMode);
+
+    if (m_interactiveMode)
+        SetStatusText("Interactive mode: drag listener & speakers.");
+    else
+        SetStatusText("Stdin mode: positions controlled via stdin.");
+}
 
 // ============================================================
-//   Application entry point
+//   wxWidgets application
 // ============================================================
 
 class MyApp : public wxApp
@@ -475,7 +677,18 @@ public:
         // Initialize audio data (speakers, bounds, wavetable, etc.)
         initAudioData();
 
-        MyFrame* frame = new MyFrame();
+        bool interactiveMode = true;
+
+        // Still honour --stdin-mode if you want a default
+        for (int i = 1; i < argc; ++i)
+        {
+            if (std::strcmp(argv[i], "--stdin-mode") == 0)
+            {
+                interactiveMode = false;
+            }
+        }
+
+        MyFrame* frame = new MyFrame(interactiveMode);
         frame->Show(true);
         return true;
     }

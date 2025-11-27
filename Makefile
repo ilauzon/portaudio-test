@@ -54,11 +54,16 @@ endif
 # ============================
 #   Flags
 # ============================
-# -g       : debug info
-# -MMD -MP : auto-generate .d dependency files per source
 CXXFLAGS += -std=c++17 -g $(WX_CXXFLAGS) $(PA_INC)
 LDFLAGS  +=
 LDLIBS   += $(WX_LIBS) $(AUDIO_LIBS) -lsndfile
+
+# macOS-specific: Homebrew libsndfile
+ifeq ($(PLATFORM),macos)
+BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
+CXXFLAGS    += -I$(BREW_PREFIX)/include
+LDFLAGS     += -L$(BREW_PREFIX)/lib
+endif
 
 # ============================
 #   Build: objects + executable
