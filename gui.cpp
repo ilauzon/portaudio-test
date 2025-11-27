@@ -117,7 +117,7 @@ private:
         for (int i = 0; i < CHANNEL_COUNT; ++i)
         {
             // Clamp volume between 0 and 1
-            float vol = m_data->channelVolumes[i];
+            float vol = m_data->channelGains[i];
             // if (vol < 0.0f) vol = 0.0f;
             // if (vol > 1.0f) vol = 1.0f;
 
@@ -189,6 +189,41 @@ private:
         dc.SetBrush(*wxBLUE_BRUSH);
         dc.DrawCircle(lp, 6);
         dc.DrawText("Listener", lp.x + 8, lp.y - 6);
+
+        // ----- Draw listener facing direction -----
+        float yawRadians = -m_data->listenerYaw * 2.0f * M_PI; // 0..1 → 0..2π
+
+        // Length of the line/cone in world units
+        float dirLength = 1.0f; // 1 metre; adjust as needed
+
+        // Compute end point
+        float endX = L.x + dirLength * std::sin(yawRadians); // X points right
+        float endY = L.y + dirLength * std::cos(yawRadians); // Y points forward
+
+        wxPoint endPoint = worldToScreen(endX, endY, w, h, scale);
+
+        // Draw simple line
+        dc.SetPen(wxPen(*wxRED, 2)); // red line for facing direction
+        dc.DrawLine(lp, endPoint);
+
+        // Optional: draw a triangular “cone” to indicate field of view
+        float coneAngle = 15.0f * (M_PI / 180.0f); // 15° half-angle
+        float coneLength = dirLength * 0.8f;       // slightly shorter than line
+        wxPoint leftTip = worldToScreen(
+            L.x + coneLength * std::sin(yawRadians - coneAngle),
+            L.y + coneLength * std::cos(yawRadians - coneAngle),
+            w, h, scale
+        );
+        wxPoint rightTip = worldToScreen(
+            L.x + coneLength * std::sin(yawRadians + coneAngle),
+            L.y + coneLength * std::cos(yawRadians + coneAngle),
+            w, h, scale
+        );
+
+        wxPoint conePoly[3] = { lp, leftTip, rightTip };
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.SetBrush(wxBrush(wxColour(255, 0, 0, 80))); // semi-transparent red
+        dc.DrawPolygon(3, conePoly);
     }
 };
 

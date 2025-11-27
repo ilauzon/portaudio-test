@@ -21,12 +21,12 @@
 
 static int gOutputDeviceIndex = paNoDevice;
 
+typedef std::array<std::vector<float>, CHANNEL_COUNT> AudioBuffer;
+
 void SetOutputDeviceIndex(int index)
 {
     gOutputDeviceIndex = index;
 }
-
-// ------------ Helpers ------------
 
 static void checkErr(PaError err)
 {
@@ -37,6 +37,136 @@ static void checkErr(PaError err)
         std::exit(EXIT_FAILURE);
     }
 }
+
+// read the audio for the number of frames in a buffer from a given file and return it.
+static AudioBuffer readAudio(paTestData* data) {
+    const size_t samplesNeeded = FRAMES_PER_BUFFER * CHANNEL_COUNT;
+
+    // Prevent out-of-range access
+    if (data->readIndex + samplesNeeded > data->audio.size()) {
+        // loop
+        data->readIndex = 0;
+    }
+
+    auto beginIterator = data->audio.begin() + data->readIndex;
+    auto endIterator = beginIterator + samplesNeeded;
+    data->readIndex += samplesNeeded;
+    std::vector<float> interleaved_buffer(beginIterator, endIterator);
+
+    AudioBuffer channelSignals;
+
+    for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
+        channelSignals[ch].resize(FRAMES_PER_BUFFER);
+    }
+
+    for (unsigned long i = 0; i < FRAMES_PER_BUFFER; ++i) {
+        size_t base_index = i * CHANNEL_COUNT;
+        channelSignals[FrontLeft][i] = interleaved_buffer[base_index];
+        channelSignals[FrontRight][i] = interleaved_buffer[base_index + 1];
+        channelSignals[Centre][i] = interleaved_buffer[base_index + 2];
+        channelSignals[Subwoofer][i] = interleaved_buffer[base_index + 3];
+        channelSignals[BackLeft][i] = interleaved_buffer[base_index + 4];
+        channelSignals[BackRight][i] = interleaved_buffer[base_index + 5];
+    }
+    
+    return channelSignals;
+}
+
+static float wrapAngle(float a) {
+    while (a >  M_PI) a -= 2 * M_PI;
+    while (a < -M_PI) a += 2 * M_PI;
+    return a;
+}
+
+static void applyRotation(paTestData* data, AudioBuffer* centeredAudioBuffer)
+{
+    const int SPEAKERS = CHANNEL_COUNT - 1; // exclude subwoofer
+    const float TWO_PI = 2 * M_PI;
+
+    AudioBuffer& buf = *centeredAudioBuffer;
+    size_t frameCount = buf[0].size();
+
+    // 1. Compute real speaker angles (excluding subwoofer)
+    float realAngles[SPEAKERS];
+    for (int ch = 0; ch < SPEAKERS; ++ch) {
+        const Point& p = data->speakerPositions[ch];
+        realAngles[ch] = -wrapAngle(atan2f(p.y, p.x) - 0.25 * TWO_PI);
+    }
+
+    // 2. Define evenly-spaced virtual speakers
+    float virtualAngles[CHANNEL_COUNT];
+    virtualAngles[Centre] = wrapAngle(TWO_PI * 0 / SPEAKERS);
+    virtualAngles[FrontLeft] = wrapAngle(TWO_PI * 1 / SPEAKERS);
+    virtualAngles[BackLeft] = wrapAngle(TWO_PI * 2 / SPEAKERS);
+    virtualAngles[BackRight] = wrapAngle(TWO_PI * 3 / SPEAKERS);
+    virtualAngles[FrontRight] = wrapAngle(TWO_PI * 4 / SPEAKERS);
+    virtualAngles[Subwoofer] = 0;
+
+    // 3. Rotate virtual speakers opposite listener yaw
+    float rotatedAngles[SPEAKERS];
+    for (int v = 0; v < SPEAKERS; ++v)
+        rotatedAngles[v] = wrapAngle(virtualAngles[v] - data->listenerYaw * TWO_PI);
+
+    // 4. Compute Gaussian mixing weights
+    float weights[SPEAKERS][SPEAKERS];
+    const float sigma = 0.7f;
+
+    for (int v = 0; v < SPEAKERS; ++v)
+    {
+        float sum = 0.0f;
+        for (int r = 0; r < SPEAKERS; ++r) {
+            float d = wrapAngle(rotatedAngles[v] - realAngles[r]);
+            float w = expf(-(d*d)/(2*sigma*sigma));
+            weights[v][r] = w;
+            sum += w;
+        }
+        for (int r = 0; r < SPEAKERS; ++r)
+            weights[v][r] /= sum;
+    }
+
+    // 5. Allocate output buffer
+    AudioBuffer out;
+    for (int ch = 0; ch < CHANNEL_COUNT; ++ch)
+        out[ch].assign(frameCount, 0.0f);
+
+    // 6. Mix rotated main speakers
+    for (size_t i = 0; i < frameCount; ++i) {
+        for (int v = 0; v < SPEAKERS; ++v) {
+            float in = buf[v][i];
+            for (int r = 0; r < SPEAKERS; ++r)
+                out[r][i] += in * weights[v][r];
+        }
+        // 7. Copy subwoofer directly (no panning)
+        out[Subwoofer][i] = buf[Subwoofer][i];
+    }
+
+    buf = out;
+}
+
+// change the gain on each signal for each channel depending on the listener's position.
+static void applyDistancing(paTestData* data, AudioBuffer* audioBuffer) {
+    // Compute distance to each speaker for this buffer
+    std::array<float, CHANNEL_COUNT> distances =
+        calculateSpeakerDistances(data->currentListenerPosition,
+                                  data->speakerPositions);
+
+    auto buffer = *audioBuffer;
+
+    for (unsigned long i = 0; i < FRAMES_PER_BUFFER; ++i)
+    {
+        for (int ch = 0; ch < CHANNEL_COUNT; ++ch)
+        {
+            float speakerDistance = distances[ch];
+            float gain = distanceToGain(speakerDistance) / data->maxGain;
+
+            // Store for GUI visualization
+            data->channelGains[ch] = gain;
+
+            buffer[ch][i] = buffer[ch][i] * gain;
+        }
+    }
+}
+
 
 static int paTestCallback(const void *inputBuffer, void *outputBuffer,
                           unsigned long framesPerBuffer,
@@ -51,66 +181,17 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
     paTestData *data = (paTestData *)userData;
     float *out = (float *)outputBuffer;
 
-    // Compute distance to each speaker for this buffer
-    // std::array<float, CHANNEL_COUNT> distances =
-    //     calculateSpeakerDistances(data->currentListenerPosition,
-    //                               data->speakerPositions);
+    AudioBuffer channelSignals = readAudio(data);
+    // applyRotation(data, &channelSignals);
+    // applyDistancing(data, &channelSignals);
 
-    // for (unsigned long i = 0; i < framesPerBuffer; ++i)
-    // {
-    //     for (int c = 0; c < CHANNEL_COUNT; ++c)
-    //     {
-    //             float speakerDistance = distances[c];
-    
-    //         // Simple distance → gain mapping:
-    //         // closer => louder, farther => quieter
-    //         float gain = distanceToGain(speakerDistance) / data->maxGain;
-
-    //         // Store for GUI visualization
-    //             data->channelVolumes[c] = gain;
-
-    //         // Phase update
-    //         int phaseOffset = data->channelPhases[c];
-    //         data->channelPhases[c] += 1;
-    //         if (data->channelPhases[c] >= TABLE_SIZE) {
-    //             data->channelPhases[c] -= TABLE_SIZE;
-    //         }
-
-    //         float sample = data->sine[phaseOffset] * gain;
-
-    //         *out++ = sample;
-    //     }
-    // }
-
-    std::vector<float> interleaved_buffer(framesPerBuffer * CHANNEL_COUNT);
-
-    // Read all the frames into the interleaved buffer
-    sf_count_t frames_read = sf_readf_float(data->file, interleaved_buffer.data(), framesPerBuffer);
-
-    std::array<std::vector<float>, CHANNEL_COUNT> channelSignals;
-    for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
-        channelSignals[ch].resize(framesPerBuffer);
-    }
-
-    for (sf_count_t i = 0; i < framesPerBuffer; ++i) {
-        size_t base_index = i * CHANNEL_COUNT;
-        channelSignals[0][i] = interleaved_buffer[base_index];
-        channelSignals[1][i] = interleaved_buffer[base_index + 1];
-        channelSignals[2][i] = interleaved_buffer[base_index + 2];
-        channelSignals[3][i] = interleaved_buffer[base_index + 3];
-        channelSignals[4][i] = interleaved_buffer[base_index + 4];
-        channelSignals[5][i] = interleaved_buffer[base_index + 5];
-    }
-
-    for (unsigned long frame = 0; frame < framesPerBuffer; frame++) {
-        out[FrontLeft] = channelSignals[0][frame];
-        out[FrontRight] = channelSignals[1][frame];
-        out[Centre] = channelSignals[2][frame];
-        out[Subwoofer] = channelSignals[3][frame];
-        out[BackLeft] = channelSignals[4][frame];
-        out[BackRight] = channelSignals[5][frame];
+    for (unsigned long frame = 0; frame < FRAMES_PER_BUFFER; frame++) {
+        for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
+            out[ch] = channelSignals[ch][frame];
+        }
         out += CHANNEL_COUNT;   // advance to next interleaved frame
     }
+
 
     return paContinue;
 }
@@ -188,12 +269,6 @@ PaStream* startPlayback(paTestData *data)
     err = Pa_StartStream(stream);
     checkErr(err);
 
-    // Simple test movement of the listener over time
-    // const int stepsPerSec     = 100;
-    // const int testPeriodInSec = 10;
-    // const int totalSteps      = stepsPerSec * testPeriodInSec;
-    // const int sleepMs         = (testPeriodInSec * 1000) / totalSteps;
-
     while (true) {
         std::string line;
 
@@ -209,11 +284,10 @@ PaStream* startPlayback(paTestData *data)
 
             if (sscanf(line.c_str(), "%f,%f,%f", &listenerX, &listenerY, &yaw) == 3) {
                 data->currentListenerPosition = Point { listenerX, listenerY };
+                data->listenerYaw = yaw;
             }
-
         }
-        
-        Pa_Sleep(5);
+        Pa_Sleep(5); // wait 5 ms between stdin updates
     }
 
     return stream;

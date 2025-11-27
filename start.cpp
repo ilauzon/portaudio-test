@@ -9,26 +9,6 @@
 paTestData gData;
 
 // ============================
-// WAVETABLE INITIALIZATION
-// ============================
-static void initWavetable(paTestData& data)
-{
-    for (int i = 0; i < TABLE_SIZE; i++)
-    {
-        float phase = i / (float)TABLE_SIZE;
-        float amplitude;
-
-        // Triangle wave
-        if (phase > 0.5f)
-            amplitude = (phase * -4.f) + 3.f;
-        else
-            amplitude = phase * 4.f - 1.f;
-
-        data.sine[i] = amplitude;
-    }
-}
-
-// ============================
 // ROOM + SPEAKER POSITIONS
 // ============================
 static void initRoomAndSpeakers(paTestData& data)
@@ -44,12 +24,12 @@ static void initRoomAndSpeakers(paTestData& data)
     }
     else if (CHANNEL_COUNT == 6)
     {
-        data.speakerPositions[SixChannelSetup::Centre] = getCircularCoordinates(0 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[SixChannelSetup::FrontRight] = getCircularCoordinates(1 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[SixChannelSetup::BackRight] = getCircularCoordinates(2 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[SixChannelSetup::BackLeft] = getCircularCoordinates(3 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[SixChannelSetup::FrontLeft] = getCircularCoordinates(4 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[SixChannelSetup::Subwoofer] = { 0, 0 };
+        data.speakerPositions[Centre] = getCircularCoordinates(0 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[FrontRight] = getCircularCoordinates(1 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[BackRight] = getCircularCoordinates(2 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[BackLeft] = getCircularCoordinates(3 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[FrontLeft] = getCircularCoordinates(4 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[Subwoofer] = { 0, 0 };
     }
     else
     {
@@ -58,20 +38,29 @@ static void initRoomAndSpeakers(paTestData& data)
 
     // Listener begins at origin
     data.currentListenerPosition = { 0, 0 };
+    data.listenerYaw = 0.0;
 
     // set max gain
     setMaxGain(&data);
 
-    // Open the audio file using libsndfile
-    SF_INFO sfInfo;
+    // Open and read the audio file using libsndfile
     auto audioFilePath = "songs/flac_5_1.flac";
-    SNDFILE* audioFile = sf_open(audioFilePath, SFM_READ, &sfInfo);
-    if (!audioFile) {
-        std::cerr << "Failed to open audio file " << audioFilePath << std::endl;
+    SF_INFO sfinfo;
+    SNDFILE* file = sf_open(audioFilePath, SFM_READ, &sfinfo);
+    if (!file) {
+        std::cerr << "Error opening audio file: " << sf_strerror(nullptr) << "\n";
         exit(EXIT_FAILURE);
     }
-    data.file = audioFile;
-    data.info = &sfInfo;
+
+    data.audio.resize(sfinfo.frames * sfinfo.channels);
+
+    sf_count_t framesRead = sf_readf_float(file, data.audio.data(), sfinfo.frames);
+    if (framesRead != sfinfo.frames) {
+        std::cerr << "Warning: read fewer frames than expected\n";
+    }
+    data.readIndex = 0;
+
+    sf_close(file);
 }
 
 // ============================
@@ -81,8 +70,7 @@ static void initChannels(paTestData& data)
 {
     for (int i = 0; i < CHANNEL_COUNT; i++)
     {
-        data.channelPhases[i] = 0;
-        data.channelVolumes[i] = 0;
+        data.channelGains[i] = 1;
     }
 }
 
@@ -92,7 +80,6 @@ static void initChannels(paTestData& data)
 // ============================
 void initAudioData()
 {
-    initWavetable(gData);
     initRoomAndSpeakers(gData);
     initChannels(gData);
 }
