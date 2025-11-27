@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <math.h>
 #include <portaudio.h>
 #include <stdlib.h>
@@ -154,34 +155,32 @@ PaStream* startPlayback(paTestData *data)
     checkErr(err);
 
     // Simple test movement of the listener over time
-    const int stepsPerSec     = 100;
-    const int testPeriodInSec = 10;
-    const int totalSteps      = stepsPerSec * testPeriodInSec;
-    const int sleepMs         = (testPeriodInSec * 1000) / totalSteps;
+    // const int stepsPerSec     = 100;
+    // const int testPeriodInSec = 10;
+    // const int totalSteps      = stepsPerSec * testPeriodInSec;
+    // const int sleepMs         = (testPeriodInSec * 1000) / totalSteps;
 
-    if (CHANNEL_COUNT == 2)
-    {
-        // Sweep listener left ↔ right
-        for (int i = 0; i < totalSteps; ++i)
-        {
-            float t = i / (float)totalSteps;   // 0..1
-            float targetX = 1.0f - t * 2.0f;   // 1 → -1
-            data->currentListenerPosition.x = targetX;
-            data->currentListenerPosition.y = 0.0f;
-            Pa_Sleep(sleepMs);
+    while (true) {
+        std::cout << "reading" << std::endl;
+        std::string line;
+
+        std::getline(std::cin, line);
+
+        if (!line.empty()) { // Check if any line was read
+            printf("%s\n",line.c_str());
+            char name[50];
+            int age;
+            float listenerX;
+            float listenerY;
+            float yaw;
+
+            if (sscanf(line.c_str(), "%f,%f,%f", &listenerX, &listenerY, &yaw) == 3) {
+                data->currentListenerPosition = Point { listenerX, listenerY };
+            }
+
         }
-    }
-    else if (CHANNEL_COUNT == 6)
-    {
-        // Move listener around a circle
-        for (int i = 0; i < totalSteps; ++i)
-        {
-            float t = i / (float)totalSteps + 0.25;   // 0..1
-            Point targetPosition = getCircularCoordinates(t, 0.75f);
-            data->currentListenerPosition.x = targetPosition.x;
-            data->currentListenerPosition.y = targetPosition.y;
-            Pa_Sleep(sleepMs);
-        }
+        
+        Pa_Sleep(5);
     }
 
     return stream;
