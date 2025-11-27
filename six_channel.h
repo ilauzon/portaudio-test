@@ -7,4 +7,12 @@ enum SixChannelSetup {
     Subwoofer = 5, // must be last value in enum
     BackLeft = 2,
     BackRight = 3
+
+    //mac
+    // FrontLeft = 0,
+    // FrontRight = 1,
+    // Centre = 4,
+    // Subwoofer = 5, // must be last value in enum
+    // BackLeft = 2,
+    // BackRight = 3
 };
