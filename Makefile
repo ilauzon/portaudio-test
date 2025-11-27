@@ -58,7 +58,7 @@ endif
 # -MMD -MP : auto-generate .d dependency files per source
 CXXFLAGS += -std=c++17 -g $(WX_CXXFLAGS) $(PA_INC)
 LDFLAGS  +=
-LDLIBS   += $(WX_LIBS) $(AUDIO_LIBS)
+LDLIBS   += $(WX_LIBS) $(AUDIO_LIBS) -lsndfile
 
 # ============================
 #   Build: objects + executable

@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
+#include <iostream>
 #include "six_channel.h"
 #include "utils.h"
 #include "portaudio_listener.h"
@@ -57,7 +58,20 @@ static void initRoomAndSpeakers(paTestData& data)
 
     // Listener begins at origin
     data.currentListenerPosition = { 0, 0 };
+
+    // set max gain
     setMaxGain(&data);
+
+    // Open the audio file using libsndfile
+    SF_INFO sfInfo;
+    auto audioFilePath = "songs/flac_5_1.flac";
+    SNDFILE* audioFile = sf_open(audioFilePath, SFM_READ, &sfInfo);
+    if (!audioFile) {
+        std::cerr << "Failed to open audio file " << audioFilePath << std::endl;
+        exit(EXIT_FAILURE);
+    }
+    data.file = audioFile;
+    data.info = &sfInfo;
 }
 
 // ============================

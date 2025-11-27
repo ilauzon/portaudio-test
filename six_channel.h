@@ -2,9 +2,9 @@
 
 enum SixChannelSetup {
     FrontLeft = 0,
-    Centre = 4,
     FrontRight = 1,
-    BackRight = 3,
+    Centre = 4,
+    Subwoofer = 5,
     BackLeft = 2,
-    Subwoofer = 5
+    BackRight = 3
 };

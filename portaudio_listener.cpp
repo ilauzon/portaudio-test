@@ -1,3 +1,4 @@
+#include "six_channel.h"
 #include "utils.h"
 #include "portaudio.h"
 #include <array>
@@ -10,6 +11,8 @@
 #include <math.h>
 #include <portaudio.h>
 #include <stdlib.h>
+#include <sndfile.h>
+#include <vector>
 
 #define FRAMES_PER_BUFFER   (256)
 #ifndef M_PI
@@ -49,35 +52,66 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
     float *out = (float *)outputBuffer;
 
     // Compute distance to each speaker for this buffer
-    std::array<float, CHANNEL_COUNT> distances =
-        calculateSpeakerDistances(data->currentListenerPosition,
-                                  data->speakerPositions);
+    // std::array<float, CHANNEL_COUNT> distances =
+    //     calculateSpeakerDistances(data->currentListenerPosition,
+    //                               data->speakerPositions);
 
-    for (unsigned long i = 0; i < framesPerBuffer; ++i)
-    {
-        for (int c = 0; c < CHANNEL_COUNT; ++c)
-        {
-                float speakerDistance = distances[c];
+    // for (unsigned long i = 0; i < framesPerBuffer; ++i)
+    // {
+    //     for (int c = 0; c < CHANNEL_COUNT; ++c)
+    //     {
+    //             float speakerDistance = distances[c];
     
-            // Simple distance → gain mapping:
-            // closer => louder, farther => quieter
-            float gain = distanceToGain(speakerDistance) / data->maxGain;
+    //         // Simple distance → gain mapping:
+    //         // closer => louder, farther => quieter
+    //         float gain = distanceToGain(speakerDistance) / data->maxGain;
 
-            // Store for GUI visualization
-                data->channelVolumes[c] = gain;
+    //         // Store for GUI visualization
+    //             data->channelVolumes[c] = gain;
 
-            // Phase update
-            int phaseOffset = data->channelPhases[c];
-            data->channelPhases[c] += 1;
-            if (data->channelPhases[c] >= TABLE_SIZE) {
-                data->channelPhases[c] -= TABLE_SIZE;
-            }
+    //         // Phase update
+    //         int phaseOffset = data->channelPhases[c];
+    //         data->channelPhases[c] += 1;
+    //         if (data->channelPhases[c] >= TABLE_SIZE) {
+    //             data->channelPhases[c] -= TABLE_SIZE;
+    //         }
 
-            float sample = data->sine[phaseOffset] * gain;
+    //         float sample = data->sine[phaseOffset] * gain;
 
-            *out++ = sample;
-        }
+    //         *out++ = sample;
+    //     }
+    // }
+
+    std::vector<float> interleaved_buffer(framesPerBuffer * CHANNEL_COUNT);
+
+    // Read all the frames into the interleaved buffer
+    sf_count_t frames_read = sf_readf_float(data->file, interleaved_buffer.data(), framesPerBuffer);
+
+    std::array<std::vector<float>, CHANNEL_COUNT> channelSignals;
+    for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
+        channelSignals[ch].resize(framesPerBuffer);
     }
+
+    for (sf_count_t i = 0; i < framesPerBuffer; ++i) {
+        size_t base_index = i * CHANNEL_COUNT;
+        channelSignals[0][i] = interleaved_buffer[base_index];
+        channelSignals[1][i] = interleaved_buffer[base_index + 1];
+        channelSignals[2][i] = interleaved_buffer[base_index + 2];
+        channelSignals[3][i] = interleaved_buffer[base_index + 3];
+        channelSignals[4][i] = interleaved_buffer[base_index + 4];
+        channelSignals[5][i] = interleaved_buffer[base_index + 5];
+    }
+
+    for (unsigned long frame = 0; frame < framesPerBuffer; frame++) {
+        out[FrontLeft] = channelSignals[0][frame];
+        out[FrontRight] = channelSignals[1][frame];
+        out[Centre] = channelSignals[2][frame];
+        out[Subwoofer] = channelSignals[3][frame];
+        out[BackLeft] = channelSignals[4][frame];
+        out[BackRight] = channelSignals[5][frame];
+        out += CHANNEL_COUNT;   // advance to next interleaved frame
+    }
+
     return paContinue;
 }
 
@@ -161,7 +195,6 @@ PaStream* startPlayback(paTestData *data)
     // const int sleepMs         = (testPeriodInSec * 1000) / totalSteps;
 
     while (true) {
-        std::cout << "reading" << std::endl;
         std::string line;
 
         std::getline(std::cin, line);

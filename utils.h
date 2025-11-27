@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <sndfile.h>
 #include <string>
 #define TABLE_SIZE          (SAMPLE_RATE / TONE_HZ)
 #define TONE_HZ             (200)
@@ -22,6 +23,8 @@ typedef struct
     Point subjectBounds[2]; // bounds for the listener, in metres. (0) bottom left - min x and y, (1) top right - max x and y.
     Point speakerPositions[CHANNEL_COUNT]; // the position of each speaker relative to subjectBounds, in offset metres.
     float maxGain; // the maximum gain that can be applied to the signal of each speaker.
+    SNDFILE* file;
+    SF_INFO* info;
 } paTestData;
 
 std::array<float, CHANNEL_COUNT> calculateSpeakerDistances(
