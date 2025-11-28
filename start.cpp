@@ -25,10 +25,10 @@ static void initRoomAndSpeakers(paTestData& data)
     else if (CHANNEL_COUNT == 6)
     {
         data.speakerPositions[Centre] = getCircularCoordinates(0 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[FrontRight] = getCircularCoordinates(1 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[BackRight] = getCircularCoordinates(2 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[BackLeft] = getCircularCoordinates(3 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[FrontLeft] = getCircularCoordinates(4 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[FrontRight] = getCircularCoordinates(-1 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[BackRight] = getCircularCoordinates(-2 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[BackLeft] = getCircularCoordinates(-3 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[FrontLeft] = getCircularCoordinates(-4 / 5.0 + 0.25, 1.0);
         data.speakerPositions[Subwoofer] = { 0, 0 };
     }
     else
@@ -37,8 +37,8 @@ static void initRoomAndSpeakers(paTestData& data)
     }
 
     // Listener begins at origin
-    data.currentListenerPosition = { 0, 0 };
-    data.listenerYaw = 0.0;
+    data.currentListenerPosition = { 0.5, 0.5 };
+    data.listenerYaw = -0.3;
 
     // set max gain
     setMaxGain(&data);

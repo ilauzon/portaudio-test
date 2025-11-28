@@ -84,6 +84,11 @@ static void applyRotation(paTestData* data, AudioBuffer* centeredAudioBuffer)
     const float TWO_PI = 2 * M_PI;
 
     AudioBuffer& buf = *centeredAudioBuffer;
+
+    std::array<float, CHANNEL_COUNT> distances =
+        calculateSpeakerDistances(data->currentListenerPosition,
+                                  data->speakerPositions);
+
     size_t frameCount = buf[0].size();
 
     // 1. Compute real speaker angles (excluding subwoofer)
@@ -96,16 +101,16 @@ static void applyRotation(paTestData* data, AudioBuffer* centeredAudioBuffer)
     // 2. Define evenly-spaced virtual speakers
     float virtualAngles[CHANNEL_COUNT];
     virtualAngles[Centre] = wrapAngle(TWO_PI * 0 / SPEAKERS);
-    virtualAngles[FrontLeft] = wrapAngle(TWO_PI * 1 / SPEAKERS);
-    virtualAngles[BackLeft] = wrapAngle(TWO_PI * 2 / SPEAKERS);
-    virtualAngles[BackRight] = wrapAngle(TWO_PI * 3 / SPEAKERS);
-    virtualAngles[FrontRight] = wrapAngle(TWO_PI * 4 / SPEAKERS);
+    virtualAngles[FrontLeft] = wrapAngle(TWO_PI * -1 / SPEAKERS);
+    virtualAngles[BackLeft] = wrapAngle(TWO_PI * -2 / SPEAKERS);
+    virtualAngles[BackRight] = wrapAngle(TWO_PI * -3 / SPEAKERS);
+    virtualAngles[FrontRight] = wrapAngle(TWO_PI * -4 / SPEAKERS);
     virtualAngles[Subwoofer] = 0;
 
     // 3. Rotate virtual speakers opposite listener yaw
     float rotatedAngles[SPEAKERS];
     for (int v = 0; v < SPEAKERS; ++v)
-        rotatedAngles[v] = wrapAngle(virtualAngles[v] - -data->listenerYaw * TWO_PI);
+        rotatedAngles[v] = wrapAngle(virtualAngles[v] - data->listenerYaw * TWO_PI);
 
     // 4. Compute Gaussian mixing weights
     float weights[SPEAKERS][SPEAKERS];
@@ -117,11 +122,13 @@ static void applyRotation(paTestData* data, AudioBuffer* centeredAudioBuffer)
         for (int r = 0; r < SPEAKERS; ++r) {
             float d = wrapAngle(rotatedAngles[v] - realAngles[r]);
             float w = expf(-(d*d)/(2*sigma*sigma));
-            weights[v][r] = w;
-            sum += w;
+            float distanceGain = distanceToGain(distances[r]) / data->maxGain;
+            weights[v][r] = w * distanceGain;
+            sum += weights[v][r];
         }
-        for (int r = 0; r < SPEAKERS; ++r)
+        for (int r = 0; r < SPEAKERS; ++r) {
             weights[v][r] /= sum;
+        }
     }
 
     // 5. Allocate output buffer
@@ -143,32 +150,6 @@ static void applyRotation(paTestData* data, AudioBuffer* centeredAudioBuffer)
     buf = out;
 }
 
-// change the gain on each signal for each channel depending on the listener's position.
-static void applyDistancing(paTestData* data, AudioBuffer* audioBuffer) {
-    // Compute distance to each speaker for this buffer
-    std::array<float, CHANNEL_COUNT> distances =
-        calculateSpeakerDistances(data->currentListenerPosition,
-                                  data->speakerPositions);
-
-    auto buffer = *audioBuffer;
-
-    for (unsigned long i = 0; i < FRAMES_PER_BUFFER; ++i)
-    {
-        for (int ch = 0; ch < CHANNEL_COUNT; ++ch)
-        {
-            float speakerDistance = distances[ch];
-            float gain = distanceToGain(speakerDistance) / data->maxGain;
-
-            // Store for GUI visualization
-            data->channelGains[ch] = gain;
-
-            if (ch != Subwoofer) {
-                (*audioBuffer)[ch][i] = buffer[ch][i] * gain;
-            }
-        }
-    }
-}
-
 static int paTestCallback(const void *inputBuffer, void *outputBuffer,
                           unsigned long framesPerBuffer,
                           const PaStreamCallbackTimeInfo *timeInfo,
@@ -184,7 +165,6 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
 
     AudioBuffer channelSignals = readAudio(data);
     applyRotation(data, &channelSignals);
-    applyDistancing(data, &channelSignals);
 
     for (unsigned long frame = 0; frame < FRAMES_PER_BUFFER; frame++) {
         for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
