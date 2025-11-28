@@ -44,7 +44,7 @@ static void initRoomAndSpeakers(paTestData& data)
     setMaxGain(&data);
 
     // Open and read the audio file using libsndfile
-    auto audioFilePath = "songs/flac_2_0.flac";
+    auto audioFilePath = "assets/audio/flac_2_0.flac";
     SF_INFO sfinfo;
     SNDFILE* file = sf_open(audioFilePath, SFM_READ, &sfinfo);
 
