@@ -2,24 +2,62 @@
 #include "speaker_panel.h"
 
 #include <wx/dcbuffer.h>
-#include <wx/bitmap.h> // for wxBitmap, wxBitmapBundle
+#include <wx/image.h>     // Required for loading PNGs
+#include <wx/filename.h>  // Required for checking file existence
 #include <cmath>
 #include <algorithm>
+#include <vector>
+
+// Fallback for M_PI if not defined
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 wxBEGIN_EVENT_TABLE(SpeakerPanel, wxPanel)
     EVT_PAINT(SpeakerPanel::OnPaint)
-        EVT_LEFT_DOWN(SpeakerPanel::OnLeftDown)
-            EVT_LEFT_UP(SpeakerPanel::OnLeftUp)
-                EVT_MOTION(SpeakerPanel::OnMouseMove)
-                    EVT_LEAVE_WINDOW(SpeakerPanel::OnMouseLeave)
-                        wxEND_EVENT_TABLE()
+    EVT_LEFT_DOWN(SpeakerPanel::OnLeftDown)
+    EVT_LEFT_UP(SpeakerPanel::OnLeftUp)
+    EVT_MOTION(SpeakerPanel::OnMouseMove)
+    EVT_LEAVE_WINDOW(SpeakerPanel::OnMouseLeave)
+wxEND_EVENT_TABLE()
 
-                            SpeakerPanel::SpeakerPanel(wxWindow *parent, paTestData *data, bool interactiveMode)
+SpeakerPanel::SpeakerPanel(wxWindow *parent, paTestData *data, bool interactiveMode)
     : wxPanel(parent), m_data(data), m_allowListenerDrag(interactiveMode)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
 
-    // Capture initial positions for reset
+    // --- 1. SETUP IMAGE HANDLERS ---
+    if (!wxImage::FindHandler(wxBITMAP_TYPE_PNG))
+        wxImage::AddHandler(new wxPNGHandler);
+
+    // --- 2. LOAD ICON (Silently check multiple paths) ---
+    wxImage iconImage;
+    
+    // Check root, build folder, and debug folder locations
+    std::vector<wxString> possiblePaths;
+    possiblePaths.push_back("assets/icons/speaker.png");       
+    possiblePaths.push_back("../assets/icons/speaker.png");    
+    possiblePaths.push_back("../../assets/icons/speaker.png"); 
+    
+    wxString foundPath = "";
+    
+    for (const wxString& path : possiblePaths) {
+        if (wxFileName::FileExists(path)) {
+            foundPath = path;
+            break;
+        }
+    }
+
+    if (!foundPath.IsEmpty() && iconImage.LoadFile(foundPath, wxBITMAP_TYPE_PNG))
+    {
+        // Scale to 32x32 and store
+        iconImage.Rescale(32, 32, wxIMAGE_QUALITY_HIGH);
+        m_speakerBitmap = wxBitmap(iconImage);
+    }
+    // If loading fails, m_speakerBitmap remains invalid, 
+    // and OnPaint will automatically use the white-box fallback.
+
+    // --- 3. CAPTURE INITIAL POSITIONS ---
     if (m_data)
     {
         m_initialListenerPosition = m_data->currentListenerPosition;
@@ -33,7 +71,6 @@ wxBEGIN_EVENT_TABLE(SpeakerPanel, wxPanel)
 
 void SpeakerPanel::SetInteractive(bool interactive)
 {
-    // interactive here = can drag/rotate the listener (head)
     m_allowListenerDrag = interactive;
 
     // Clear drag state when changing modes
@@ -150,16 +187,8 @@ void SpeakerPanel::OnPaint(wxPaintEvent &event)
     wxPoint bottomRight = worldToScreen(maxX, minY, w, h, scale);
     dc.DrawRectangle(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
 
-    // 2. Load SVG
-    static wxBitmapBundle s_speakerIcon;
-    static bool s_iconLoaded = false;
+    // 2. Setup Icon Size
     const int iconDisplaySize = 32; 
-
-    if (!s_iconLoaded)
-    {
-        s_speakerIcon = wxBitmapBundle::FromSVGFile("assets/icons/speaker.svg", wxSize(iconDisplaySize, iconDisplaySize));
-        s_iconLoaded = true;
-    }
 
     // 3. Draw Speakers (Name, Icon, Ramp, Number)
     const int gap = 2;
@@ -190,14 +219,14 @@ void SpeakerPanel::OnPaint(wxPaintEvent &event)
         dc.DrawText(nameStr, centerX - (nameSize.GetWidth() / 2), iconTop - gap - nameSize.GetHeight());
 
         // B. Icon
-        if (s_speakerIcon.IsOk())
+        if (m_speakerBitmap.IsOk())
         {
-            dc.SetTextForeground(*wxWHITE); 
-            wxBitmap bmp = s_speakerIcon.GetBitmap(wxSize(iconDisplaySize, iconDisplaySize));
-            dc.DrawBitmap(bmp, centerX - iconHalf, iconTop, true);
+            // Draw PNG with transparency
+            dc.DrawBitmap(m_speakerBitmap, centerX - iconHalf, iconTop, true);
         }
         else
         {
+            // Fallback: White box
             dc.SetPen(*wxWHITE_PEN);
             dc.SetBrush(*wxTRANSPARENT_BRUSH);
             dc.DrawRectangle(centerX - iconHalf, iconTop, iconDisplaySize, iconDisplaySize);
@@ -245,8 +274,8 @@ void SpeakerPanel::OnPaint(wxPaintEvent &event)
 
     // --- MATH FOR DIRECTION AND CONE ---
     float yawRad = -m_data->listenerYaw * 2.0f * M_PI;
-    const float dirLen = 0.5f;     // Length of the center line
-    const float coneAngle = 20.0f * (M_PI / 180.0f); // Width of the cone (FOV)
+    const float dirLen = 0.5f;     
+    const float coneAngle = 20.0f * (M_PI / 180.0f); 
 
     // Calculate tip of the red line (the handle)
     wxPoint tip = worldToScreen(L.x + dirLen * sin(yawRad), 
@@ -258,21 +287,21 @@ void SpeakerPanel::OnPaint(wxPaintEvent &event)
     wxPoint coneRight = worldToScreen(L.x + dirLen * sin(yawRad + coneAngle), 
                                       L.y + dirLen * cos(yawRad + coneAngle), w, h, scale);
 
-    // --- DRAW CONE (First, so it's behind the head) ---
+    // --- DRAW CONE ---
     wxPoint conePoly[3] = { lp, coneLeft, coneRight };
     dc.SetPen(*wxTRANSPARENT_PEN);
-    dc.SetBrush(wxBrush(wxColour(255, 0, 0, 80))); // Semi-transparent Red
+    dc.SetBrush(wxBrush(wxColour(255, 0, 0, 80))); 
     dc.DrawPolygon(3, conePoly);
 
     // --- DRAW DIRECTION LINE ---
     dc.SetPen(wxPen(*wxRED, 2));
     dc.DrawLine(lp, tip);
 
-    // --- DRAW HANDLE (Red Circle at tip) ---
+    // --- DRAW HANDLE ---
     dc.SetBrush(*wxRED_BRUSH);
     dc.DrawCircle(tip, 4);
 
-    // --- DRAW LISTENER HEAD (Blue Circle) ---
+    // --- DRAW LISTENER HEAD ---
     dc.SetPen(*wxBLUE_PEN);
     dc.SetBrush(*wxBLUE_BRUSH);
     dc.DrawCircle(lp, 6);
@@ -382,7 +411,6 @@ void SpeakerPanel::OnLeftDown(wxMouseEvent &evt)
     }
 
     // Speaker hit-test (always allowed)
-    // Speaker hit-test (always allowed)
     const int speakerBoxSize = 36;
     int halfBox = speakerBoxSize / 2;
 
@@ -426,7 +454,7 @@ void SpeakerPanel::OnMouseMove(wxMouseEvent &evt)
 
     wxPoint mousePos = evt.GetPosition();
 
-    // Hover behaviour: change cursor when near the rotation handle (tip)
+    // Hover behaviour
     if (!m_mouseDown && m_allowListenerDrag)
     {
         const float dirLength = 0.5f;
@@ -445,16 +473,11 @@ void SpeakerPanel::OnMouseMove(wxMouseEvent &evt)
         const int handleRadiusPx = 12;
 
         if (dist2 <= handleRadiusPx * handleRadiusPx)
-        {
-            // Horizontal double-arrow cursor so user knows they can rotate
             SetCursor(wxCursor(wxCURSOR_SIZEWE));
-        }
         else
-        {
             SetCursor(wxNullCursor);
-        }
 
-        return; // no drag happening
+        return; 
     }
 
     // Dragging behaviour
@@ -467,36 +490,27 @@ void SpeakerPanel::OnMouseMove(wxMouseEvent &evt)
     world.x = std::max(minX, std::min(maxX, world.x));
     world.y = std::max(minY, std::min(maxY, world.y));
 
-    // Dragging yaw (rotation) – interactive mode only
+    // Dragging yaw
     if (m_draggingYaw && m_allowListenerDrag)
     {
         Point L = m_data->currentListenerPosition;
-
         float vx = world.x - L.x;
         float vy = world.y - L.y;
         float len2 = vx * vx + vy * vy;
 
         if (len2 > 1e-6f)
         {
-            // Angle φ with 0 at "up" (0, +1), π at "down" (0, -1)
-            // Note: atan2(x, y) gives that convention (unusual order but convenient)
-            float phi = std::atan2(vx, vy); // [-π, π]
-
-            // listenerYaw in [0,1): 0 = up, 0.5 = down
-            float yaw = -phi / (2.0f * float(M_PI)); // raw
-            if (yaw < 0.0f)
-                yaw += 1.0f;
-            if (yaw >= 1.0f)
-                yaw -= 1.0f;
-
+            float phi = std::atan2(vx, vy); 
+            float yaw = -phi / (2.0f * float(M_PI)); 
+            if (yaw < 0.0f) yaw += 1.0f;
+            if (yaw >= 1.0f) yaw -= 1.0f;
             m_data->listenerYaw = yaw;
         }
-
         Refresh();
         return;
     }
 
-    // Dragging listener position
+    // Dragging listener
     if (m_draggingListener && m_allowListenerDrag)
     {
         m_data->currentListenerPosition = world;
@@ -504,7 +518,7 @@ void SpeakerPanel::OnMouseMove(wxMouseEvent &evt)
         return;
     }
 
-    // Dragging speaker position
+    // Dragging speaker
     if (m_dragSpeakerIndex >= 0 &&
         m_dragSpeakerIndex < CHANNEL_COUNT)
     {

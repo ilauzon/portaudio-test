@@ -2,6 +2,7 @@
 #pragma once
 
 #include <wx/wx.h>
+#include <wx/bitmap.h> // Explicitly include bitmap header
 #include "../portaudio_listener.h"  // paTestData, CHANNEL_COUNT, Point
 
 class SpeakerPanel : public wxPanel
@@ -16,6 +17,10 @@ public:
     void ResetPositions();
 
 private:
+    // --- NEW: Variable to store the loaded PNG ---
+    wxBitmap m_speakerBitmap; 
+    // ---------------------------------------------
+
     // Which edge (if any) is being resized
     enum class DragEdge { None, Left, Right, Top, Bottom };
 
