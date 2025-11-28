@@ -14,8 +14,8 @@ paTestData gData;
 static void initRoomAndSpeakers(paTestData& data)
 {
     // Define room bounds
-    data.subjectBounds[0] = { -1.0f, -1.0f }; // bottom-left
-    data.subjectBounds[1] = {  1.0f,  1.0f }; // top-right
+    data.subjectBounds[0] = { -3.0f, -3.0f }; // bottom-left
+    data.subjectBounds[1] = {  3.0f,  3.0f }; // top-right
 
     if (CHANNEL_COUNT == 2)
     {
@@ -24,11 +24,11 @@ static void initRoomAndSpeakers(paTestData& data)
     }
     else if (CHANNEL_COUNT == 6)
     {
-        data.speakerPositions[Centre] = getCircularCoordinates(0 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[FrontRight] = getCircularCoordinates(-1 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[BackRight] = getCircularCoordinates(-2 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[BackLeft] = getCircularCoordinates(-3 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[FrontLeft] = getCircularCoordinates(-4 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[Centre] = getCircularCoordinates(0 / 5.0 + 0.25, 2.0);
+        data.speakerPositions[FrontRight] = getCircularCoordinates(-1 / 5.0 + 0.25, 2.0);
+        data.speakerPositions[BackRight] = getCircularCoordinates(-2 / 5.0 + 0.25, 2.0);
+        data.speakerPositions[BackLeft] = getCircularCoordinates(-3 / 5.0 + 0.25, 2.0);
+        data.speakerPositions[FrontLeft] = getCircularCoordinates(-4 / 5.0 + 0.25, 2.0);
         data.speakerPositions[Subwoofer] = { 0, 0 };
     }
     else
@@ -37,8 +37,8 @@ static void initRoomAndSpeakers(paTestData& data)
     }
 
     // Listener begins at origin
-    data.currentListenerPosition = { 0.5, 0.5 };
-    data.listenerYaw = -0.3;
+    data.currentListenerPosition = { 0.0, 0.0 };
+    data.listenerYaw = 0.0;
 
     // set max gain
     setMaxGain(&data);

@@ -122,10 +122,10 @@ static void applyRotation(paTestData* data, AudioBuffer* centeredAudioBuffer)
         for (int r = 0; r < SPEAKERS; ++r) {
             float d = wrapAngle(rotatedAngles[v] - realAngles[r]);
             float w = expf(-(d*d)/(2*sigma*sigma));
-            float distanceGain = distanceToGain(distances[r]) / data->maxGain;
-            weights[v][r] = w * distanceGain;
-            sum += weights[v][r];
+            weights[v][r] = w;
+            sum += w;
         }
+
         for (int r = 0; r < SPEAKERS; ++r) {
             weights[v][r] /= sum;
         }
@@ -140,8 +140,10 @@ static void applyRotation(paTestData* data, AudioBuffer* centeredAudioBuffer)
     for (size_t i = 0; i < frameCount; ++i) {
         for (int v = 0; v < SPEAKERS; ++v) {
             float in = buf[v][i];
-            for (int r = 0; r < SPEAKERS; ++r)
-                out[r][i] += in * weights[v][r];
+            for (int r = 0; r < SPEAKERS; ++r) {
+                float distanceGain = distanceToGain(distances[r]) / data->maxGain;
+                out[r][i] += in * weights[v][r] * distanceGain;
+            }
         }
         // 7. Copy subwoofer directly (no panning)
         out[Subwoofer][i] = buf[Subwoofer][i];
