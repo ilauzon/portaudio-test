@@ -44,20 +44,45 @@ static void initRoomAndSpeakers(paTestData& data)
     setMaxGain(&data);
 
     // Open and read the audio file using libsndfile
-    auto audioFilePath = "songs/flac_5_1.flac";
+    auto audioFilePath = "songs/flac_2_0.flac";
     SF_INFO sfinfo;
     SNDFILE* file = sf_open(audioFilePath, SFM_READ, &sfinfo);
-    if (!file) {
-        std::cerr << "Error opening audio file: " << sf_strerror(nullptr) << "\n";
-        exit(EXIT_FAILURE);
-    }
 
-    data.audio.resize(sfinfo.frames * sfinfo.channels);
+    // Allocate output buffer for 5.1
+    data.audio.resize(sfinfo.frames * 6);
 
-    sf_count_t framesRead = sf_readf_float(file, data.audio.data(), sfinfo.frames);
+    std::vector<float> tempBuffer(sfinfo.frames * 6, 0.0f);
+
+    sf_count_t framesRead = sf_readf_float(file, tempBuffer.data(), sfinfo.frames);
     if (framesRead != sfinfo.frames) {
         std::cerr << "Warning: read fewer frames than expected\n";
     }
+
+    // Mix stereo to 5.1
+    if (sfinfo.channels == 2) {
+        for (sf_count_t i = 0; i < framesRead; ++i) {
+            float left  = tempBuffer[i * 2 + 0];
+            float right = tempBuffer[i * 2 + 1];
+
+            data.audio[i * 6 + 0] = left;              // Front Left
+            data.audio[i * 6 + 1] = right;              // Front Right
+            data.audio[i * 6 + 2] = (left * right) * 0.5f;             // Centre
+            data.audio[i * 6 + 3] = (left + right) * 0.25f;       // Subwoofer
+            data.audio[i * 6 + 4] = left * 0.5f;      // Rear Left
+            data.audio[i * 6 + 5] = right * 0.5f; // Rear Right
+        }
+    } else if (sfinfo.channels == 6) {
+        // Copy directly
+        for (sf_count_t i = 0; i < framesRead; ++i) {
+            for (int ch = 0; ch < 6; ++ch) {
+                data.audio[i * 6 + ch] = tempBuffer[i * 6 + ch];
+            }
+        }
+    } else {
+        std::cerr << "Invalid number of channels: " << sfinfo.channels << "\n";
+        exit(EXIT_FAILURE);
+    }
+
     data.readIndex = 0;
 
     sf_close(file);
