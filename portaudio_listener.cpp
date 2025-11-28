@@ -162,7 +162,9 @@ static void applyDistancing(paTestData* data, AudioBuffer* audioBuffer) {
             // Store for GUI visualization
             data->channelGains[ch] = gain;
 
-            (*audioBuffer)[ch][i] = buffer[ch][i] * gain;
+            if (ch != Subwoofer) {
+                (*audioBuffer)[ch][i] = buffer[ch][i] * gain;
+            }
         }
     }
 }
