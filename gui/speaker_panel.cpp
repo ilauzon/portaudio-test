@@ -2,13 +2,15 @@
 #include "speaker_panel.h"
 
 #include <wx/dcbuffer.h>
-#include <wx/image.h>     // Required for loading PNGs
-#include <wx/filename.h>  // Required for checking file existence
+#include <wx/dcgraph.h>   // REQUIRED for transparency
+#include <wx/graphics.h>
+#include <wx/image.h>     
+#include <wx/filename.h>  
 #include <cmath>
 #include <algorithm>
 #include <vector>
 
-// Fallback for M_PI if not defined
+// Fallback for M_PI
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -24,23 +26,21 @@ wxEND_EVENT_TABLE()
 SpeakerPanel::SpeakerPanel(wxWindow *parent, paTestData *data, bool interactiveMode)
     : wxPanel(parent), m_data(data), m_allowListenerDrag(interactiveMode)
 {
+    // Set internal variable, though OnPaint handles the actual drawing now
+    SetBackgroundColour(wxColour(30, 30, 30)); 
     SetBackgroundStyle(wxBG_STYLE_PAINT);
 
-    // --- 1. SETUP IMAGE HANDLERS ---
+    // --- SETUP IMAGE ---
     if (!wxImage::FindHandler(wxBITMAP_TYPE_PNG))
         wxImage::AddHandler(new wxPNGHandler);
 
-    // --- 2. LOAD ICON (Silently check multiple paths) ---
     wxImage iconImage;
-    
-    // Check root, build folder, and debug folder locations
     std::vector<wxString> possiblePaths;
     possiblePaths.push_back("assets/icons/speaker.png");       
     possiblePaths.push_back("../assets/icons/speaker.png");    
     possiblePaths.push_back("../../assets/icons/speaker.png"); 
     
     wxString foundPath = "";
-    
     for (const wxString& path : possiblePaths) {
         if (wxFileName::FileExists(path)) {
             foundPath = path;
@@ -50,14 +50,11 @@ SpeakerPanel::SpeakerPanel(wxWindow *parent, paTestData *data, bool interactiveM
 
     if (!foundPath.IsEmpty() && iconImage.LoadFile(foundPath, wxBITMAP_TYPE_PNG))
     {
-        // Scale to 32x32 and store
         iconImage.Rescale(32, 32, wxIMAGE_QUALITY_HIGH);
         m_speakerBitmap = wxBitmap(iconImage);
     }
-    // If loading fails, m_speakerBitmap remains invalid, 
-    // and OnPaint will automatically use the white-box fallback.
 
-    // --- 3. CAPTURE INITIAL POSITIONS ---
+    // --- CAPTURE POSITIONS ---
     if (m_data)
     {
         m_initialListenerPosition = m_data->currentListenerPosition;
@@ -72,75 +69,52 @@ SpeakerPanel::SpeakerPanel(wxWindow *parent, paTestData *data, bool interactiveM
 void SpeakerPanel::SetInteractive(bool interactive)
 {
     m_allowListenerDrag = interactive;
-
-    // Clear drag state when changing modes
     m_mouseDown = false;
     m_draggingListener = false;
     m_draggingYaw = false;
     m_dragSpeakerIndex = -1;
     m_selectedSpeaker = -1;
-    if (HasCapture())
-        ReleaseMouse();
+    if (HasCapture()) ReleaseMouse();
     Refresh();
 }
 
 void SpeakerPanel::ResetPositions()
 {
-    if (!m_data)
-        return;
-
+    if (!m_data) return;
     m_data->currentListenerPosition = m_initialListenerPosition;
     m_data->listenerYaw = m_initialListenerYaw;
 
     for (int i = 0; i < CHANNEL_COUNT; ++i)
-    {
         m_data->speakerPositions[i] = m_initialSpeakerPositions[i];
-    }
 
     m_mouseDown = false;
     m_draggingListener = false;
     m_draggingYaw = false;
     m_dragSpeakerIndex = -1;
     m_selectedSpeaker = -1;
-    if (HasCapture())
-        ReleaseMouse();
-
+    if (HasCapture()) ReleaseMouse();
     Refresh();
 }
 
-float SpeakerPanel::computeScaleForCurrentBounds(
-    int w, int h,
-    float &minX, float &minY,
-    float &maxX, float &maxY) const
+float SpeakerPanel::computeScaleForCurrentBounds(int w, int h, float &minX, float &minY, float &maxX, float &maxY) const
 {
-    if (!m_data)
-    {
-        minX = minY = -1.0f;
-        maxX = maxY = 1.0f;
-        return 1.0f;
-    }
-
+    if (!m_data) { minX = minY = -1.0f; maxX = maxY = 1.0f; return 1.0f; }
     minX = m_data->subjectBounds[0].x;
     minY = m_data->subjectBounds[0].y;
     maxX = m_data->subjectBounds[1].x;
     maxY = m_data->subjectBounds[1].y;
 
     const int margin = 20;
-
     float maxAbsX = std::max(std::fabs(minX), std::fabs(maxX));
     float maxAbsY = std::max(std::fabs(minY), std::fabs(maxY));
 
-    if (maxAbsX < 0.001f)
-        maxAbsX = 1.0f;
-    if (maxAbsY < 0.001f)
-        maxAbsY = 1.0f;
+    if (maxAbsX < 0.001f) maxAbsX = 1.0f;
+    if (maxAbsY < 0.001f) maxAbsY = 1.0f;
 
     float scaleX = (w / 2.0f - margin) / maxAbsX;
     float scaleY = (h / 2.0f - margin) / maxAbsY;
     float scale = (scaleX < scaleY ? scaleX : scaleY);
-    if (scale <= 0.0f)
-        scale = 1.0f;
-
+    if (scale <= 0.0f) scale = 1.0f;
     return scale;
 }
 
@@ -148,10 +122,8 @@ wxPoint SpeakerPanel::worldToScreen(float x, float y, int w, int h, float scale)
 {
     float cx = w * 0.5f;
     float cy = h * 0.5f;
-
     float sx = cx + x * scale;
-    float sy = cy - y * scale; // invert Y so +Y is up
-
+    float sy = cy - y * scale; 
     return wxPoint((int)sx, (int)sy);
 }
 
@@ -159,20 +131,25 @@ Point SpeakerPanel::screenToWorld(int px, int py, int w, int h, float scale) con
 {
     float cx = w * 0.5f;
     float cy = h * 0.5f;
-
     float x = (px - cx) / scale;
-    float y = (cy - py) / scale; // invert Y back
-
+    float y = (cy - py) / scale; 
     return Point{x, y};
 }
 
 void SpeakerPanel::OnPaint(wxPaintEvent &event)
 {
     wxAutoBufferedPaintDC dc(this);
-    dc.Clear();
+    
+    // Enable GCDC for transparency
+    wxGCDC gdc(dc); 
 
-    if (!m_data)
-        return;
+    // --- FIX: Explicitly set the background color before clearing ---
+    wxColour darkGrey(30, 30, 30);
+    gdc.SetBackground(wxBrush(darkGrey));
+    gdc.Clear();
+    // -------------------------------------------------------------
+
+    if (!m_data) return;
 
     int w, h;
     GetClientSize(&w, &h);
@@ -181,23 +158,23 @@ void SpeakerPanel::OnPaint(wxPaintEvent &event)
     float scale = computeScaleForCurrentBounds(w, h, minX, minY, maxX, maxY);
 
     // 1. Draw Room Bounds
-    dc.SetPen(wxPen(wxColour(255, 255, 255), 3));
-    dc.SetBrush(*wxTRANSPARENT_BRUSH);
+    gdc.SetPen(wxPen(wxColour(255, 255, 255), 3));
+    gdc.SetBrush(*wxTRANSPARENT_BRUSH);
     wxPoint topLeft = worldToScreen(minX, maxY, w, h, scale);
     wxPoint bottomRight = worldToScreen(maxX, minY, w, h, scale);
-    dc.DrawRectangle(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
+    gdc.DrawRectangle(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
 
-    // 2. Setup Icon Size
+    // 2. Setup Dimensions
     const int iconDisplaySize = 32; 
-
-    // 3. Draw Speakers (Name, Icon, Ramp, Number)
     const int gap = 2;
     const int sliderHeight = 8;
     const int sliderWidth = 32;
-    wxFont mainFont = dc.GetFont();
+    
+    wxFont mainFont = gdc.GetFont();
     wxFont smallFont = mainFont;
     smallFont.SetPointSize(std::max(7, mainFont.GetPointSize() - 2));
 
+    // 3. Draw Speakers
     for (int i = 0; i < CHANNEL_COUNT; ++i)
     {
         float vol = m_data->channelGains[i];
@@ -211,28 +188,26 @@ void SpeakerPanel::OnPaint(wxPaintEvent &event)
         int iconBottom = centerY + iconHalf;
 
         // A. Name
-        dc.SetFont(smallFont);
-        dc.SetTextForeground(*wxWHITE);
+        gdc.SetFont(smallFont);
+        gdc.SetTextForeground(*wxWHITE);
         wxString nameStr;
         nameStr.Printf("Ch %d", i);
-        wxSize nameSize = dc.GetTextExtent(nameStr);
-        dc.DrawText(nameStr, centerX - (nameSize.GetWidth() / 2), iconTop - gap - nameSize.GetHeight());
+        wxSize nameSize = gdc.GetTextExtent(nameStr);
+        gdc.DrawText(nameStr, centerX - (nameSize.GetWidth() / 2), iconTop - gap - nameSize.GetHeight());
 
         // B. Icon
         if (m_speakerBitmap.IsOk())
         {
-            // Draw PNG with transparency
-            dc.DrawBitmap(m_speakerBitmap, centerX - iconHalf, iconTop, true);
+            gdc.DrawBitmap(m_speakerBitmap, centerX - iconHalf, iconTop, true);
         }
         else
         {
-            // Fallback: White box
-            dc.SetPen(*wxWHITE_PEN);
-            dc.SetBrush(*wxTRANSPARENT_BRUSH);
-            dc.DrawRectangle(centerX - iconHalf, iconTop, iconDisplaySize, iconDisplaySize);
+            gdc.SetPen(*wxWHITE_PEN);
+            gdc.SetBrush(*wxTRANSPARENT_BRUSH);
+            gdc.DrawRectangle(centerX - iconHalf, iconTop, iconDisplaySize, iconDisplaySize);
         }
 
-        // C. Volume Ramp
+        // C. Volume Ramp (Background)
         int triTop = iconBottom + gap;
         int triBottom = triTop + sliderHeight;
         int triLeft = centerX - (sliderWidth / 2);
@@ -243,45 +218,44 @@ void SpeakerPanel::OnPaint(wxPaintEvent &event)
         rampPoints[1] = wxPoint(triRight, triBottom);
         rampPoints[2] = wxPoint(triRight, triTop);
 
-        dc.SetPen(*wxTRANSPARENT_PEN);
-        dc.SetBrush(wxBrush(wxColour(80, 80, 80))); 
-        dc.DrawPolygon(3, rampPoints);
+        gdc.SetPen(*wxTRANSPARENT_PEN);
+        gdc.SetBrush(wxBrush(wxColour(80, 80, 80))); 
+        gdc.DrawPolygon(3, rampPoints);
 
+        // Active Volume (Green)
         if (vol > 0.001f)
         {
             int fillWidth = (int)(sliderWidth * vol);
             if (fillWidth > sliderWidth) fillWidth = sliderWidth;
-            dc.SetClippingRegion(triLeft, triTop, fillWidth, sliderHeight + 1);
+            
+            gdc.SetClippingRegion(triLeft, triTop, fillWidth, sliderHeight + 1);
             int greenVal = (int)(100 + 155 * vol);
             if (greenVal > 255) greenVal = 255;
-            dc.SetBrush(wxBrush(wxColour(50, greenVal, 50))); 
-            dc.DrawPolygon(3, rampPoints); 
-            dc.DestroyClippingRegion();
+            gdc.SetBrush(wxBrush(wxColour(50, greenVal, 50))); 
+            gdc.DrawPolygon(3, rampPoints); 
+            gdc.DestroyClippingRegion();
         }
 
         // D. Number
         wxString volStr;
         volStr.Printf("%.2f", vol);
-        wxSize volSize = dc.GetTextExtent(volStr);
-        dc.DrawText(volStr, centerX - (volSize.GetWidth() / 2), triBottom + gap);
+        wxSize volSize = gdc.GetTextExtent(volStr);
+        gdc.DrawText(volStr, centerX - (volSize.GetWidth() / 2), triBottom + gap);
     }
 
-    dc.SetFont(mainFont);
+    gdc.SetFont(mainFont);
 
     // 4. Draw Listener & FOV Cone
     Point L = m_data->currentListenerPosition;
     wxPoint lp = worldToScreen(L.x, L.y, w, h, scale);
 
-    // --- MATH FOR DIRECTION AND CONE ---
     float yawRad = -m_data->listenerYaw * 2.0f * M_PI;
     const float dirLen = 0.5f;     
     const float coneAngle = 20.0f * (M_PI / 180.0f); 
 
-    // Calculate tip of the red line (the handle)
     wxPoint tip = worldToScreen(L.x + dirLen * sin(yawRad), 
                                 L.y + dirLen * cos(yawRad), w, h, scale);
 
-    // Calculate corners of the cone base
     wxPoint coneLeft = worldToScreen(L.x + dirLen * sin(yawRad - coneAngle), 
                                      L.y + dirLen * cos(yawRad - coneAngle), w, h, scale);
     wxPoint coneRight = worldToScreen(L.x + dirLen * sin(yawRad + coneAngle), 
@@ -289,31 +263,29 @@ void SpeakerPanel::OnPaint(wxPaintEvent &event)
 
     // --- DRAW CONE ---
     wxPoint conePoly[3] = { lp, coneLeft, coneRight };
-    dc.SetPen(*wxTRANSPARENT_PEN);
-    dc.SetBrush(wxBrush(wxColour(255, 0, 0, 80))); 
-    dc.DrawPolygon(3, conePoly);
+    gdc.SetPen(*wxTRANSPARENT_PEN);
+    gdc.SetBrush(wxBrush(wxColour(255, 0, 0, 80))); // Semi-transparent Red
+    gdc.DrawPolygon(3, conePoly);
 
     // --- DRAW DIRECTION LINE ---
-    dc.SetPen(wxPen(*wxRED, 2));
-    dc.DrawLine(lp, tip);
+    gdc.SetPen(wxPen(*wxRED, 2));
+    gdc.DrawLine(lp, tip);
 
-    // --- DRAW HANDLE ---
-    dc.SetBrush(*wxRED_BRUSH);
-    dc.DrawCircle(tip, 4);
+    gdc.SetBrush(*wxRED_BRUSH);
+    gdc.DrawCircle(tip, 4);
 
-    // --- DRAW LISTENER HEAD ---
-    dc.SetPen(*wxBLUE_PEN);
-    dc.SetBrush(*wxBLUE_BRUSH);
-    dc.DrawCircle(lp, 6);
-    dc.DrawText("Listener", lp.x + 8, lp.y - 8); 
+    gdc.SetPen(*wxBLUE_PEN);
+    gdc.SetBrush(*wxBLUE_BRUSH);
+    gdc.DrawCircle(lp, 6);
+    gdc.DrawText("Listener", lp.x + 8, lp.y - 8); 
 
-    // 5. Draw Distance Lines (if dragging)
+    // 5. Draw Distance Lines
     if (m_mouseDown && m_selectedSpeaker >= 0)
     {
         wxPoint pSel = worldToScreen(m_data->speakerPositions[m_selectedSpeaker].x, 
                                      m_data->speakerPositions[m_selectedSpeaker].y, w, h, scale);
         
-        dc.SetPen(wxPen(wxColour(200, 200, 200), 1, wxPENSTYLE_DOT));
+        gdc.SetPen(wxPen(wxColour(200, 200, 200), 1, wxPENSTYLE_DOT));
         
         for(int i=0; i<CHANNEL_COUNT; ++i) {
             if(i == m_selectedSpeaker) continue;
@@ -321,184 +293,122 @@ void SpeakerPanel::OnPaint(wxPaintEvent &event)
             wxPoint pTarget = worldToScreen(m_data->speakerPositions[i].x, 
                                             m_data->speakerPositions[i].y, w, h, scale);
             
-            dc.DrawLine(pSel, pTarget);
+            gdc.DrawLine(pSel, pTarget);
             
             float dist = std::hypot(m_data->speakerPositions[i].x - m_data->speakerPositions[m_selectedSpeaker].x,
                                     m_data->speakerPositions[i].y - m_data->speakerPositions[m_selectedSpeaker].y);
             
             wxPoint mid = (pSel + pTarget) / 2;
             wxString distStr = wxString::Format("%.2fm", dist);
-            wxSize dSize = dc.GetTextExtent(distStr);
+            wxSize dSize = gdc.GetTextExtent(distStr);
             
-            dc.SetBrush(wxBrush(wxColour(0,0,0,180))); 
-            dc.SetPen(*wxTRANSPARENT_PEN);
-            dc.DrawRectangle(mid.x, mid.y, dSize.GetWidth()+2, dSize.GetHeight()+2);
+            gdc.SetBrush(wxBrush(wxColour(0,0,0,180))); 
+            gdc.SetPen(*wxTRANSPARENT_PEN);
+            gdc.DrawRectangle(mid.x, mid.y, dSize.GetWidth()+2, dSize.GetHeight()+2);
             
-            dc.SetTextForeground(*wxWHITE);
-            dc.DrawText(distStr, mid.x + 1, mid.y + 1);
+            gdc.SetTextForeground(*wxWHITE);
+            gdc.DrawText(distStr, mid.x + 1, mid.y + 1);
             
-            dc.SetPen(wxPen(wxColour(200, 200, 200), 1, wxPENSTYLE_DOT)); 
+            gdc.SetPen(wxPen(wxColour(200, 200, 200), 1, wxPENSTYLE_DOT)); 
         }
     }
 }
 
 void SpeakerPanel::OnLeftDown(wxMouseEvent &evt)
 {
-    if (!m_data)
-        return;
-
-    int w, h;
-    GetClientSize(&w, &h);
-
+    if (!m_data) return;
+    int w, h; GetClientSize(&w, &h);
     float minX, minY, maxX, maxY;
     float scale = computeScaleForCurrentBounds(w, h, minX, minY, maxX, maxY);
-
     wxPoint mousePos = evt.GetPosition();
 
-    // Listener rotation handle hit-test (tip of red line)
+    // Listener Handle
     if (m_allowListenerDrag)
     {
         const float dirLength = 0.5f;
-
         Point L = m_data->currentListenerPosition;
         float yawRadians = -m_data->listenerYaw * 2.0f * float(M_PI);
-
         float endX = L.x + dirLength * std::sin(yawRadians);
         float endY = L.y + dirLength * std::cos(yawRadians);
-
         wxPoint endPoint = worldToScreen(endX, endY, w, h, scale);
 
         int dx = mousePos.x - endPoint.x;
         int dy = mousePos.y - endPoint.y;
-        int dist2 = dx * dx + dy * dy;
-        const int handleRadiusPx = 12; // clickable radius around tip
-
-        if (dist2 <= handleRadiusPx * handleRadiusPx)
+        if ((dx * dx + dy * dy) <= 144) 
         {
-            m_mouseDown = true;
-            m_draggingYaw = true;
-            m_draggingListener = false;
-            m_dragSpeakerIndex = -1;
-            m_selectedSpeaker = -1;
-            CaptureMouse();
-            Refresh();
-            return;
+            m_mouseDown = true; m_draggingYaw = true; m_draggingListener = false;
+            m_dragSpeakerIndex = -1; m_selectedSpeaker = -1;
+            CaptureMouse(); Refresh(); return;
         }
     }
 
-    // Listener position hit-test (circle) — only if allowed to drag head
+    // Listener Body
     if (m_allowListenerDrag)
     {
         Point L = m_data->currentListenerPosition;
         wxPoint lp = worldToScreen(L.x, L.y, w, h, scale);
-
         int dx = mousePos.x - lp.x;
         int dy = mousePos.y - lp.y;
-        int dist2 = dx * dx + dy * dy;
-        const int listenerRadiusPx = 10;
-
-        if (dist2 <= listenerRadiusPx * listenerRadiusPx)
+        if ((dx * dx + dy * dy) <= 100) 
         {
-            m_mouseDown = true;
-            m_draggingListener = true;
-            m_draggingYaw = false;
-            m_dragSpeakerIndex = -1;
-            m_selectedSpeaker = -1;
-            CaptureMouse();
-            Refresh();
-            return;
+            m_mouseDown = true; m_draggingListener = true; m_draggingYaw = false;
+            m_dragSpeakerIndex = -1; m_selectedSpeaker = -1;
+            CaptureMouse(); Refresh(); return;
         }
     }
 
-    // Speaker hit-test (always allowed)
+    // Speakers
     const int speakerBoxSize = 36;
-    int halfBox = speakerBoxSize / 2;
-
     for (int i = 0; i < CHANNEL_COUNT; ++i)
     {
         Point sp = m_data->speakerPositions[i];
         wxPoint p = worldToScreen(sp.x, sp.y, w, h, scale);
-
-        wxRect rect(p.x - halfBox, p.y - halfBox,
-                    speakerBoxSize, speakerBoxSize);
+        wxRect rect(p.x - speakerBoxSize/2, p.y - speakerBoxSize/2, speakerBoxSize, speakerBoxSize);
 
         if (rect.Contains(mousePos))
         {
-            m_mouseDown = true;
-            m_draggingListener = false;
-            m_draggingYaw = false;
-            m_dragSpeakerIndex = i;
-            m_selectedSpeaker = i;
-            CaptureMouse();
-            Refresh();
-            return;
+            m_mouseDown = true; m_draggingListener = false; m_draggingYaw = false;
+            m_dragSpeakerIndex = i; m_selectedSpeaker = i;
+            CaptureMouse(); Refresh(); return;
         }
     }
 }
 
 void SpeakerPanel::OnMouseMove(wxMouseEvent &evt)
 {
-    if (!m_data)
-        return;
-
-    int w, h;
-    GetClientSize(&w, &h);
-
+    if (!m_data) return;
+    int w, h; GetClientSize(&w, &h);
     float minX, minY, maxX, maxY;
     float scale = computeScaleForCurrentBounds(w, h, minX, minY, maxX, maxY);
-
-    if (minX > maxX)
-        std::swap(minX, maxX);
-    if (minY > maxY)
-        std::swap(minY, maxY);
-
+    if (minX > maxX) std::swap(minX, maxX);
+    if (minY > maxY) std::swap(minY, maxY);
     wxPoint mousePos = evt.GetPosition();
 
-    // Hover behaviour
     if (!m_mouseDown && m_allowListenerDrag)
     {
-        const float dirLength = 0.5f;
-
         Point L = m_data->currentListenerPosition;
         float yawRadians = -m_data->listenerYaw * 2.0f * float(M_PI);
-
-        float endX = L.x + dirLength * std::sin(yawRadians);
-        float endY = L.y + dirLength * std::cos(yawRadians);
-
-        wxPoint endPoint = worldToScreen(endX, endY, w, h, scale);
-
+        wxPoint endPoint = worldToScreen(L.x + 0.5f * std::sin(yawRadians), 
+                                         L.y + 0.5f * std::cos(yawRadians), w, h, scale);
         int dx = mousePos.x - endPoint.x;
         int dy = mousePos.y - endPoint.y;
-        int dist2 = dx * dx + dy * dy;
-        const int handleRadiusPx = 12;
-
-        if (dist2 <= handleRadiusPx * handleRadiusPx)
-            SetCursor(wxCursor(wxCURSOR_SIZEWE));
-        else
-            SetCursor(wxNullCursor);
-
+        if ((dx*dx + dy*dy) <= 144) SetCursor(wxCursor(wxCURSOR_SIZEWE));
+        else SetCursor(wxNullCursor);
         return; 
     }
 
-    // Dragging behaviour
-    if (!m_mouseDown)
-        return;
+    if (!m_mouseDown) return;
 
     Point world = screenToWorld(mousePos.x, mousePos.y, w, h, scale);
-
-    // Clamp to room bounds
     world.x = std::max(minX, std::min(maxX, world.x));
     world.y = std::max(minY, std::min(maxY, world.y));
 
-    // Dragging yaw
     if (m_draggingYaw && m_allowListenerDrag)
     {
         Point L = m_data->currentListenerPosition;
         float vx = world.x - L.x;
         float vy = world.y - L.y;
-        float len2 = vx * vx + vy * vy;
-
-        if (len2 > 1e-6f)
+        if (vx*vx + vy*vy > 1e-6f)
         {
             float phi = std::atan2(vx, vy); 
             float yaw = -phi / (2.0f * float(M_PI)); 
@@ -506,54 +416,30 @@ void SpeakerPanel::OnMouseMove(wxMouseEvent &evt)
             if (yaw >= 1.0f) yaw -= 1.0f;
             m_data->listenerYaw = yaw;
         }
-        Refresh();
-        return;
+        Refresh(); return;
     }
-
-    // Dragging listener
     if (m_draggingListener && m_allowListenerDrag)
     {
-        m_data->currentListenerPosition = world;
-        Refresh();
-        return;
+        m_data->currentListenerPosition = world; Refresh(); return;
     }
-
-    // Dragging speaker
-    if (m_dragSpeakerIndex >= 0 &&
-        m_dragSpeakerIndex < CHANNEL_COUNT)
+    if (m_dragSpeakerIndex >= 0 && m_dragSpeakerIndex < CHANNEL_COUNT)
     {
-        m_data->speakerPositions[m_dragSpeakerIndex] = world;
-        Refresh();
-        return;
+        m_data->speakerPositions[m_dragSpeakerIndex] = world; Refresh(); return;
     }
 }
 
 void SpeakerPanel::OnLeftUp(wxMouseEvent &evt)
 {
-    m_mouseDown = false;
-    m_draggingListener = false;
-    m_draggingYaw = false;
-    m_dragSpeakerIndex = -1;
-    m_selectedSpeaker = -1;
-
-    if (HasCapture())
-        ReleaseMouse();
-
-    SetCursor(wxNullCursor);
-    Refresh();
+    m_mouseDown = false; m_draggingListener = false; m_draggingYaw = false;
+    m_dragSpeakerIndex = -1; m_selectedSpeaker = -1;
+    if (HasCapture()) ReleaseMouse();
+    SetCursor(wxNullCursor); Refresh();
 }
 
 void SpeakerPanel::OnMouseLeave(wxMouseEvent &evt)
 {
-    if (m_mouseDown && HasCapture())
-        ReleaseMouse();
-
-    m_mouseDown = false;
-    m_draggingListener = false;
-    m_draggingYaw = false;
-    m_dragSpeakerIndex = -1;
-    m_selectedSpeaker = -1;
-
-    SetCursor(wxNullCursor);
-    Refresh();
+    if (m_mouseDown && HasCapture()) ReleaseMouse();
+    m_mouseDown = false; m_draggingListener = false; m_draggingYaw = false;
+    m_dragSpeakerIndex = -1; m_selectedSpeaker = -1;
+    SetCursor(wxNullCursor); Refresh();
 }
