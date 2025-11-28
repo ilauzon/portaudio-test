@@ -21,7 +21,9 @@ CXX ?= g++
 #   Project Settings
 # ============================
 EXEC      := audiotest
-CPP_FILES := $(wildcard *.cpp)
+
+# Include both root .cpp files and gui/*.cpp files
+CPP_FILES := $(wildcard *.cpp gui/*.cpp)
 OBJ       := $(CPP_FILES:.cpp=.o)
 
 # PortAudio paths (after install-deps)
