@@ -105,7 +105,7 @@ static void applyRotation(paTestData* data, AudioBuffer* centeredAudioBuffer)
     // 3. Rotate virtual speakers opposite listener yaw
     float rotatedAngles[SPEAKERS];
     for (int v = 0; v < SPEAKERS; ++v)
-        rotatedAngles[v] = wrapAngle(virtualAngles[v] - data->listenerYaw * TWO_PI);
+        rotatedAngles[v] = wrapAngle(virtualAngles[v] - -data->listenerYaw * TWO_PI);
 
     // 4. Compute Gaussian mixing weights
     float weights[SPEAKERS][SPEAKERS];
@@ -162,11 +162,10 @@ static void applyDistancing(paTestData* data, AudioBuffer* audioBuffer) {
             // Store for GUI visualization
             data->channelGains[ch] = gain;
 
-            buffer[ch][i] = buffer[ch][i] * gain;
+            (*audioBuffer)[ch][i] = buffer[ch][i] * gain;
         }
     }
 }
-
 
 static int paTestCallback(const void *inputBuffer, void *outputBuffer,
                           unsigned long framesPerBuffer,
@@ -182,8 +181,8 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
     float *out = (float *)outputBuffer;
 
     AudioBuffer channelSignals = readAudio(data);
-    // applyRotation(data, &channelSignals);
-    // applyDistancing(data, &channelSignals);
+    applyRotation(data, &channelSignals);
+    applyDistancing(data, &channelSignals);
 
     for (unsigned long frame = 0; frame < FRAMES_PER_BUFFER; frame++) {
         for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
