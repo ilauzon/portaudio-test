@@ -25,7 +25,7 @@ calculateSpeakerDistances(Point subjectPosition,
 }
 
 float distanceToGain(float distance) {
-    return distance / 1;
+    return distance;
 }
 
 /**

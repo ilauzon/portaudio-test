@@ -14,8 +14,8 @@ paTestData gData;
 static void initRoomAndSpeakers(paTestData& data)
 {
     // Define room bounds
-    data.subjectBounds[0] = { -1.0f, -1.0f }; // bottom-left
-    data.subjectBounds[1] = {  1.0f,  1.0f }; // top-right
+    data.subjectBounds[0] = { -3.0f, -3.0f }; // bottom-left
+    data.subjectBounds[1] = {  3.0f,  3.0f }; // top-right
 
     if (CHANNEL_COUNT == 2)
     {
@@ -24,11 +24,11 @@ static void initRoomAndSpeakers(paTestData& data)
     }
     else if (CHANNEL_COUNT == 6)
     {
-        data.speakerPositions[Centre] = getCircularCoordinates(0 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[FrontRight] = getCircularCoordinates(1 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[BackRight] = getCircularCoordinates(2 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[BackLeft] = getCircularCoordinates(3 / 5.0 + 0.25, 1.0);
-        data.speakerPositions[FrontLeft] = getCircularCoordinates(4 / 5.0 + 0.25, 1.0);
+        data.speakerPositions[Centre] = getCircularCoordinates(0 / 5.0 + 0.25, 2.0);
+        data.speakerPositions[FrontRight] = getCircularCoordinates(-1 / 5.0 + 0.25, 2.0);
+        data.speakerPositions[BackRight] = getCircularCoordinates(-2 / 5.0 + 0.25, 2.0);
+        data.speakerPositions[BackLeft] = getCircularCoordinates(-3 / 5.0 + 0.25, 2.0);
+        data.speakerPositions[FrontLeft] = getCircularCoordinates(-4 / 5.0 + 0.25, 2.0);
         data.speakerPositions[Subwoofer] = { 0, 0 };
     }
     else
@@ -37,27 +37,52 @@ static void initRoomAndSpeakers(paTestData& data)
     }
 
     // Listener begins at origin
-    data.currentListenerPosition = { 0, 0 };
+    data.currentListenerPosition = { 0.0, 0.0 };
     data.listenerYaw = 0.0;
 
     // set max gain
     setMaxGain(&data);
 
     // Open and read the audio file using libsndfile
-    auto audioFilePath = "songs/flac_5_1.flac";
+    auto audioFilePath = "songs/flac_2_0.flac";
     SF_INFO sfinfo;
     SNDFILE* file = sf_open(audioFilePath, SFM_READ, &sfinfo);
-    if (!file) {
-        std::cerr << "Error opening audio file: " << sf_strerror(nullptr) << "\n";
-        exit(EXIT_FAILURE);
-    }
 
-    data.audio.resize(sfinfo.frames * sfinfo.channels);
+    // Allocate output buffer for 5.1
+    data.audio.resize(sfinfo.frames * 6);
 
-    sf_count_t framesRead = sf_readf_float(file, data.audio.data(), sfinfo.frames);
+    std::vector<float> tempBuffer(sfinfo.frames * 6, 0.0f);
+
+    sf_count_t framesRead = sf_readf_float(file, tempBuffer.data(), sfinfo.frames);
     if (framesRead != sfinfo.frames) {
         std::cerr << "Warning: read fewer frames than expected\n";
     }
+
+    // Mix stereo to 5.1
+    if (sfinfo.channels == 2) {
+        for (sf_count_t i = 0; i < framesRead; ++i) {
+            float left  = tempBuffer[i * 2 + 0];
+            float right = tempBuffer[i * 2 + 1];
+
+            data.audio[i * 6 + 0] = left;              // Front Left
+            data.audio[i * 6 + 1] = right;              // Front Right
+            data.audio[i * 6 + 2] = (left * right) * 0.5f;             // Centre
+            data.audio[i * 6 + 3] = (left + right) * 0.25f;       // Subwoofer
+            data.audio[i * 6 + 4] = left * 0.5f;      // Rear Left
+            data.audio[i * 6 + 5] = right * 0.5f; // Rear Right
+        }
+    } else if (sfinfo.channels == 6) {
+        // Copy directly
+        for (sf_count_t i = 0; i < framesRead; ++i) {
+            for (int ch = 0; ch < 6; ++ch) {
+                data.audio[i * 6 + ch] = tempBuffer[i * 6 + ch];
+            }
+        }
+    } else {
+        std::cerr << "Invalid number of channels: " << sfinfo.channels << "\n";
+        exit(EXIT_FAILURE);
+    }
+
     data.readIndex = 0;
 
     sf_close(file);
