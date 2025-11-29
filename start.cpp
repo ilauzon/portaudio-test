@@ -11,11 +11,23 @@ paTestData gData;
 // ============================
 // ROOM + SPEAKER POSITIONS
 // ============================
+
+
 static void initRoomAndSpeakers(paTestData& data)
 {
-    // Define room bounds
-    data.subjectBounds[0] = { -3.0f, -3.0f }; // bottom-left
-    data.subjectBounds[1] = {  3.0f,  3.0f }; // top-right
+    // ... Keep room bounds and speaker position logic ...
+    // ... Stop copying at "Open and read the audio file using libsndfile" ...
+
+    data.subjectBounds[0] = { -3.0f, -3.0f };
+    data.subjectBounds[1] = {  3.0f,  3.0f };
+    
+    // ... (Keep the speaker position setup code for CHANNEL_COUNT == 6) ...
+    // COPY THE SPEAKER SETUP CODE FROM YOUR ORIGINAL FILE HERE
+
+    data.currentListenerPosition = { 0.0, 0.0 };
+    data.listenerYaw = 0.0;
+
+    setMaxGain(&data);
 
     if (CHANNEL_COUNT == 2)
     {
@@ -35,57 +47,6 @@ static void initRoomAndSpeakers(paTestData& data)
     {
         std::exit(EXIT_FAILURE);
     }
-
-    // Listener begins at origin
-    data.currentListenerPosition = { 0.0, 0.0 };
-    data.listenerYaw = 0.0;
-
-    // set max gain
-    setMaxGain(&data);
-
-    // Open and read the audio file using libsndfile
-    auto audioFilePath = "assets/audio/flac_2_0.flac";
-    SF_INFO sfinfo;
-    SNDFILE* file = sf_open(audioFilePath, SFM_READ, &sfinfo);
-
-    // Allocate output buffer for 5.1
-    data.audio.resize(sfinfo.frames * 6);
-
-    std::vector<float> tempBuffer(sfinfo.frames * 6, 0.0f);
-
-    sf_count_t framesRead = sf_readf_float(file, tempBuffer.data(), sfinfo.frames);
-    if (framesRead != sfinfo.frames) {
-        std::cerr << "Warning: read fewer frames than expected\n";
-    }
-
-    // Mix stereo to 5.1
-    if (sfinfo.channels == 2) {
-        for (sf_count_t i = 0; i < framesRead; ++i) {
-            float left  = tempBuffer[i * 2 + 0];
-            float right = tempBuffer[i * 2 + 1];
-
-            data.audio[i * 6 + 0] = left;              // Front Left
-            data.audio[i * 6 + 1] = right;              // Front Right
-            data.audio[i * 6 + 2] = (left * right) * 0.5f;             // Centre
-            data.audio[i * 6 + 3] = (left + right) * 0.25f;       // Subwoofer
-            data.audio[i * 6 + 4] = left * 0.5f;      // Rear Left
-            data.audio[i * 6 + 5] = right * 0.5f; // Rear Right
-        }
-    } else if (sfinfo.channels == 6) {
-        // Copy directly
-        for (sf_count_t i = 0; i < framesRead; ++i) {
-            for (int ch = 0; ch < 6; ++ch) {
-                data.audio[i * 6 + ch] = tempBuffer[i * 6 + ch];
-            }
-        }
-    } else {
-        std::cerr << "Invalid number of channels: " << sfinfo.channels << "\n";
-        exit(EXIT_FAILURE);
-    }
-
-    data.readIndex = 0;
-
-    sf_close(file);
 }
 
 // ============================

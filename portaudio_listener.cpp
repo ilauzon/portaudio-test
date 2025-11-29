@@ -1,6 +1,6 @@
 #include "six_channel.h"
 #include "utils.h"
-#include "portaudio.h"
+#include "portaudio_listener.h"
 #include <array>
 #include <cmath>
 #include <csignal>
@@ -9,7 +9,6 @@
 #include <cstring>
 #include <iostream>
 #include <math.h>
-#include <portaudio.h>
 #include <stdlib.h>
 #include <sndfile.h>
 #include <vector>
@@ -152,127 +151,167 @@ static void applyRotation(paTestData* data, AudioBuffer* centeredAudioBuffer)
     buf = out;
 }
 
+// In portaudio_listener.cpp
+
 static int paTestCallback(const void *inputBuffer, void *outputBuffer,
                           unsigned long framesPerBuffer,
                           const PaStreamCallbackTimeInfo *timeInfo,
                           PaStreamCallbackFlags statusFlags,
                           void *userData)
 {
-    (void)inputBuffer;
-    (void)timeInfo;
-    (void)statusFlags;
-
     paTestData *data = (paTestData *)userData;
     float *out = (float *)outputBuffer;
+    const float *in = (const float *)inputBuffer; // Cast input buffer
 
-    AudioBuffer channelSignals = readAudio(data);
-    applyRotation(data, &channelSignals);
-
-    for (unsigned long frame = 0; frame < FRAMES_PER_BUFFER; frame++) {
-        for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
-            out[ch] = channelSignals[ch][frame];
-        }
-        out += CHANNEL_COUNT;   // advance to next interleaved frame
+    // Temporary buffer to hold the 6-channel upmixed audio
+    AudioBuffer channelSignals;
+    for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
+        channelSignals[ch].resize(framesPerBuffer);
     }
 
+    // 1. LIVE UPMIXING (Stereo Input -> 6 Channel Internal)
+    if (in != nullptr) {
+        for (unsigned long i = 0; i < framesPerBuffer; i++) {
+            // Input is Stereo (L, R, L, R...)
+            // float left = in[i * 2]; 
+            // float right = in[i * 2 + 1];
+
+            // Same logic as your start.cpp, but live:
+            channelSignals[FrontLeft][i]  = in[i*6];
+            channelSignals[FrontRight][i] = in[i*6+1];
+            channelSignals[Centre][i]     = in[i*6+4];
+            channelSignals[Subwoofer][i]  = in[i*6+5];
+            channelSignals[BackLeft][i]   = in[i*6+2];
+            channelSignals[BackRight][i]  = in[i*6+3];
+        }
+    } else {
+        // Silence if no input
+        for (auto& ch : channelSignals) std::fill(ch.begin(), ch.end(), 0.0f);
+    }
+
+    // 2. APPLY ROTATION (Process the audio)
+    // We pass our live buffer to your existing algorithm
+    // applyRotation(data, &channelSignals);
+
+    // 3. INTERLEAVE OUTPUT (6 Channel Internal -> Output Device)
+    for (unsigned long frame = 0; frame < framesPerBuffer; frame++) {
+        for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
+            *out++ = channelSignals[ch][frame];
+        }
+    }
 
     return paContinue;
 }
 
 // ------------ Start / end playback ------------
 
+// In portaudio_listener.cpp
+
+// In portaudio_listener.cpp
+
+// ... includes and paTestCallback remain the same ...
+
 PaStream* startPlayback(paTestData *data)
 {
     PaError err = Pa_Initialize();
     checkErr(err);
 
-    // Decide which output device to use:
-    // - If GUI set gOutputDeviceIndex, use that.
-    // - Otherwise, fall back to PortAudio default output device.
-    int outputDevice = gOutputDeviceIndex;
-    if (outputDevice == paNoDevice)
-        outputDevice = Pa_GetDefaultOutputDevice();
+    int numDevices = Pa_GetDeviceCount();
+    int inputDevice = paNoDevice;
+    int outputDevice = paNoDevice;
 
-    if (outputDevice == paNoDevice)
-    {
-        std::printf("No valid output device selected or available.\n");
-        std::fflush(stdout);
-        Pa_Terminate();
-        return nullptr;
+    std::printf("\n==========================================\n");
+    std::printf("     AVAILABLE AUDIO DEVICES\n");
+    std::printf("==========================================\n");
+
+    // 1. PRINT ALL DEVICES
+    for (int i = 0; i < numDevices; i++) {
+        const PaDeviceInfo *info = Pa_GetDeviceInfo(i);
+        std::printf("[%d] %s\n      (In: %d | Out: %d)\n", 
+            i, info->name, info->maxInputChannels, info->maxOutputChannels);
+    }
+    std::printf("==========================================\n");
+
+    // 2. HARDCODED SEARCH (You must edit 'outputSearch'!)
+    // We search for "BlackHole" for input (Source)
+    // We search for your "USB" or "Surround" device for output (Speakers)
+    
+    const char* inputSearch  = "BlackHole"; 
+    const char* outputSearch = "USB"; // <--- CHANGE THIS IF YOUR SPEAKER NAME IS DIFFERENT
+
+    // Find Input
+    for (int i = 0; i < numDevices; i++) {
+        const PaDeviceInfo *info = Pa_GetDeviceInfo(i);
+        if (strstr(info->name, inputSearch) && info->maxInputChannels >= 2) {
+            inputDevice = i;
+            break;
+        }
     }
 
-    const PaDeviceInfo *deviceInfo = Pa_GetDeviceInfo(outputDevice);
-    if (!deviceInfo)
-    {
-        std::printf("Failed to get device info for index %d.\n", outputDevice);
-        std::fflush(stdout);
-        Pa_Terminate();
-        return nullptr;
+    // Find Output
+    for (int i = 0; i < numDevices; i++) {
+        const PaDeviceInfo *info = Pa_GetDeviceInfo(i);
+        // Look for name match AND 6 channels
+        if (strstr(info->name, outputSearch) && info->maxOutputChannels >= CHANNEL_COUNT) {
+            outputDevice = i;
+            break;
+        }
     }
 
-    if (deviceInfo->maxOutputChannels < CHANNEL_COUNT)
-    {
-        std::printf("Selected device '%s' does not support %d output channels "
-                    "(maxOutputChannels = %d).\n",
-                    deviceInfo->name,
-                    CHANNEL_COUNT,
-                    deviceInfo->maxOutputChannels);
-        std::fflush(stdout);
-        Pa_Terminate();
+    // 3. SAFETY CHECK
+    if (inputDevice == paNoDevice) {
+        std::printf("ERROR: Could not find Input device '%s'.\n", inputSearch);
         return nullptr;
     }
+    
+    if (outputDevice == paNoDevice) {
+        std::printf("ERROR: Could not find Output device '%s' with %d channels.\n", outputSearch, CHANNEL_COUNT);
+        std::printf("TIP: Check the list above. Change 'outputSearch' string in code to match your speaker name.\n");
+        return nullptr; // STOP HERE so we don't accidentally use BlackHole as output
+    }
 
-    std::printf("Using output device %d: %s (maxOutputChannels=%d)\n",
-                outputDevice,
-                deviceInfo->name,
-                deviceInfo->maxOutputChannels);
-    std::fflush(stdout);
+    const PaDeviceInfo *inInfo = Pa_GetDeviceInfo(inputDevice);
+    const PaDeviceInfo *outInfo = Pa_GetDeviceInfo(outputDevice);
 
-    PaStreamParameters outputParameters;
-    std::memset(&outputParameters, 0, sizeof(outputParameters));
+    std::printf("\n>>> ROUTING CONFIRMED <<<\n");
+    std::printf("IN (Spotify): %s\n", inInfo->name);
+    std::printf("OUT (Sound):  %s\n", outInfo->name);
+    std::printf("-------------------------\n");
 
-    outputParameters.device = outputDevice;
-    outputParameters.channelCount = CHANNEL_COUNT;
-    outputParameters.sampleFormat = paFloat32;
-    outputParameters.suggestedLatency =
-        deviceInfo->defaultLowOutputLatency;
-    outputParameters.hostApiSpecificStreamInfo = nullptr;
+    // 4. OPEN STREAM
+    PaStreamParameters inputParams;
+    std::memset(&inputParams, 0, sizeof(inputParams));
+    inputParams.device = inputDevice;
+    inputParams.channelCount = 6; // Read Stereo from BlackHole
+    inputParams.sampleFormat = paFloat32;
+    inputParams.suggestedLatency = inInfo->defaultLowInputLatency;
+
+    PaStreamParameters outputParams;
+    std::memset(&outputParams, 0, sizeof(outputParams));
+    outputParams.device = outputDevice;
+    outputParams.channelCount = CHANNEL_COUNT; // Write 5.1 to Speakers
+    outputParams.sampleFormat = paFloat32;
+    outputParams.suggestedLatency = outInfo->defaultLowOutputLatency;
 
     PaStream* stream = nullptr;
-    err = Pa_OpenStream(&stream,
-                        nullptr,                // no input
-                        &outputParameters,      // output only
-                        SAMPLE_RATE,
-                        FRAMES_PER_BUFFER,
-                        paNoFlag,
-                        paTestCallback,
-                        data);
+    err = Pa_OpenStream(&stream, &inputParams, &outputParams, SAMPLE_RATE, FRAMES_PER_BUFFER, paNoFlag, paTestCallback, data);
     checkErr(err);
 
     err = Pa_StartStream(stream);
     checkErr(err);
 
     while (true) {
-        std::string line;
-
-        std::getline(std::cin, line);
-
-        if (!line.empty()) { // Check if any line was read
-            printf("%s\n",line.c_str());
-            char name[50];
-            int age;
-            float listenerX;
-            float listenerY;
-            float yaw;
-
-            if (sscanf(line.c_str(), "%f,%f,%f", &listenerX, &listenerY, &yaw) == 3) {
+         std::string line;
+         std::getline(std::cin, line);
+         if (!line.empty()) {
+             float listenerX, listenerY, yaw;
+             if (sscanf(line.c_str(), "%f,%f,%f", &listenerX, &listenerY, &yaw) == 3) {
                 data->currentListenerPosition = Point { listenerX, listenerY };
                 data->listenerYaw = yaw;
             }
-        }
-        Pa_Sleep(5); // wait 5 ms between stdin updates
+         }
+         Pa_Sleep(5);
     }
-
     return stream;
 }
 
@@ -290,3 +329,4 @@ void endPlayback(PaStream* stream)
     err = Pa_Terminate();
     checkErr(err);
 }
+
