@@ -24,11 +24,12 @@ static void initRoomAndSpeakers(paTestData& data)
     }
     else if (CHANNEL_COUNT == 6)
     {
-        data.speakerPositions[Centre] = getCircularCoordinates(0 / 5.0 + 0.25, 2.0);
-        data.speakerPositions[FrontRight] = getCircularCoordinates(-1 / 5.0 + 0.25, 2.0);
-        data.speakerPositions[BackRight] = getCircularCoordinates(-2 / 5.0 + 0.25, 2.0);
-        data.speakerPositions[BackLeft] = getCircularCoordinates(-3 / 5.0 + 0.25, 2.0);
-        data.speakerPositions[FrontLeft] = getCircularCoordinates(-4 / 5.0 + 0.25, 2.0);
+        float radius = 1.7;
+        data.speakerPositions[Centre] = getCircularCoordinates(0 / 5.0 + 0.25, radius);
+        data.speakerPositions[FrontRight] = getCircularCoordinates(-1 / 5.0 + 0.25, radius);
+        data.speakerPositions[BackRight] = getCircularCoordinates(-2 / 5.0 + 0.25, radius);
+        data.speakerPositions[BackLeft] = getCircularCoordinates(-3 / 5.0 + 0.25, radius);
+        data.speakerPositions[FrontLeft] = getCircularCoordinates(-4 / 5.0 + 0.25, radius);
         data.speakerPositions[Subwoofer] = { 0, 0 };
     }
     else
@@ -44,7 +45,7 @@ static void initRoomAndSpeakers(paTestData& data)
     setMaxGain(&data);
 
     // Open and read the audio file using libsndfile
-    auto audioFilePath = "assets/audio/flac_2_0.flac";
+    auto audioFilePath = "assets/audio/flac_5_1.flac";
     SF_INFO sfinfo;
     SNDFILE* file = sf_open(audioFilePath, SFM_READ, &sfinfo);
 
