@@ -306,7 +306,8 @@ PaStream* startPlayback(paTestData *data)
          if (!line.empty()) {
              float listenerX, listenerY, yaw;
              if (sscanf(line.c_str(), "%f,%f,%f", &listenerX, &listenerY, &yaw) == 3) {
-                data->currentListenerPosition = Point { listenerX, listenerY };
+                auto cameraOffset = Point { 0, 1.1 };
+                data->currentListenerPosition = Point { listenerX + cameraOffset.x, listenerY + cameraOffset.y };
                 data->listenerYaw = yaw;
             }
          }
