@@ -191,7 +191,7 @@ static int paTestCallback(const void *inputBuffer, void *outputBuffer,
 
     // 2. APPLY ROTATION (Process the audio)
     // We pass our live buffer to your existing algorithm
-    // applyRotation(data, &channelSignals);
+    applyRotation(data, &channelSignals);
 
     // 3. INTERLEAVE OUTPUT (6 Channel Internal -> Output Device)
     for (unsigned long frame = 0; frame < framesPerBuffer; frame++) {
